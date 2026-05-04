@@ -1,0 +1,4081 @@
+---
+title: "MTHM505 - Data Science and Statistical Modelling in Space and Time"
+author: "Keladome Maturin Geoffroy Dato"
+format: 
+  pdf:
+    #toc: true      # Enables Table of Contents
+    #lof: true
+    #lot: true
+    code-overflow: wrap
+    fontsize: 12pt
+  docx:
+    toc: true            # Table of contents (Word)
+    #reference-doc: template.docx  # Custom Word template
+tables: true
+number-sections: false
+crossref: false
+link-bibliography: true
+link-citations: true
+css: styles.css
+keep_with_next: true
+df-print: kable
+tbl-cap-location: top
+fig-cap-location: bottom
+editor: visual
+bibliography: references.bib
+csl: acm.csl
+appendix: true
+reference-location: document
+
+header-includes:
+  - \usepackage{setspace}    # Ensures proper spacing
+  - \usepackage{titling}     # Allows custom title formatting
+  - \usepackage{graphicx}    # Enables image inclusion
+  - \usepackage{amsmath}     # Allows mathematical symbols
+  - \usepackage{amssymb}
+  - \usepackage{bbding}
+  - \usepackage{pifont}      # Allows mathematical symbols
+  
+fontsize: 12pt
+geometry: margin=1in
+---
+
+## 
+
+\begin{center}
+    {\Large \textbf{Coursework}} \\
+    \vspace{0.5cm}
+    {\large \textbf{Student ID:} 720084978} \\
+    {\large \textbf{University:} University of Exeter} \\
+    {\large \textbf{Academic Year:} 2024-2025} \\
+    {\large \textbf{Date:} \today} \\
+\end{center}
+
+\newpage
+
+\tableofcontents
+
+\newpage
+
+```{r eval=T, echo=F}
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  ifelse(options$size != "normalsize", paste0("\\", options$size,"\n\n", x, "\n\n \\normalsize"), x)
+})
+
+```
+
+# **Declaration**
+
+AI-supported/AI-integrated use is permitted in this assessment. I acknowledge the following uses of GenAI tools in this assessment:
+
+\ding{51} I have used GenAI to understand errors and warning messages in Quarto and R.
+
+\ding{51} I have used GenAI tools to proofread and correct grammar or spelling errors.
+
+\ding{51} I have used GenAI tools for developing ideas.
+
+\ding{51} I have used GenAI tools to assist with research or gathering information.
+
+\ding{51} I have used GenAI tools to help me understand key theories and concepts.
+
+\ding{51} I have used GenAI tools to identify trends and themes as part of my data analysis.
+
+\ding{51} I have used GenAI tools to suggest a plan or structure for my assessment.
+
+\ding{51} I have used GenAI tools to give me feedback on a draft.
+
+\ding{55} I have used GenAI tool to generate images, figures or diagrams
+
+\ding{55} I have used GenAI tools to generate citations or references.
+
+I declare that I have referenced use of GenAI outputs within my assessment in line with the University referencing guidelines.
+
+\newpage
+
+# Question 1: Sea Surface Temperature modelling
+
+## a) Plot and comment on the data
+
+```{r,warning=FALSE,message=FALSE}
+# load the dataset
+SST <- read.csv("D:/Bureau/University of Exeter UK/Modules/Data Science and Statistical Modelling in Space and Time/Coursework/kuroshio100.csv",
+                header = T,sep = ',',dec = '.')
+
+head(SST,n=5)
+
+# check for missing values
+colSums(is.na(SST))
+```
+
+```{r,warning=FALSE,message=FALSE,cache=TRUE,results='hide'}
+# imputation of the NA by using mean function
+# Remove rows with missing coordinates
+library(tidyverse)
+SST_clean <- SST %>% drop_na(lon, lat)
+
+# impute sst and at variables
+
+# Select variables to impute
+vars_to_impute <- SST_clean %>% 
+  select(sst, at)  # include all with NA (not lon/lat)
+
+# Run mice
+library(mice)
+# method = 'pmm': Predictive Mean Matching, safe for numeric data
+imp <- mice(vars_to_impute, m = 5, method = 'pmm', seed = 123)
+
+# Complete the dataset with the first imputation
+imputed_vars <- complete(imp, 1)
+
+# Add imputed values back to the cleaned data
+SST_imputed <- SST_clean %>%
+  select(-sst, -at) %>%
+  bind_cols(imputed_vars)
+
+```
+
+```{r,warning=FALSE,message=FALSE,cache=TRUE}
+library(geoR) 
+# Check duplicated coordinates
+dup_locations <- dup.coords(SST_imputed[, c("lon", "lat")])
+#print(dup_locations)
+
+# Apply jitter to duplicated coordinates
+sst_coords <- jitterDupCoords(SST_imputed[, c("lon", "lat")], max = 0.0001)
+
+# Create a new data frame with jittered coords and original temperature values
+SST_jittered <- data.frame(
+  lon = sst_coords[, 1],
+  lat = sst_coords[, 2],
+  sst = SST_imputed$sst,
+  date = SST_imputed$date,
+  id = SST_imputed$id,
+  pt = SST_imputed$pt,
+  sf = SST_imputed$sf,
+  at = SST_imputed$at,
+  af = SST_imputed$af
+  
+)
+
+colSums(is.na(SST_imputed))
+```
+
+```{r,warning=FALSE,message=FALSE,cache=TRUE,fig.cap='Spatial plots',fig-plot1}
+library(geoR)      # for geostatistics and as.geodata
+library(ggplot2)   # for nice plots
+library(tidyverse) # for data manipulation
+
+##  convert the data into a geodata object 
+sst_geo1 <- as.geodata(SST_jittered, coords.col = c("lon", "lat"), 
+                      data.col = "sst")
+
+
+# spatial plot
+plot(sst_geo1, main.title = "Sea Surface Temperature (SST)")
+
+```
+
+## Comments
+
+The top left figure shows spatial distribution by groups (@fig-plot1). Different colours and shapes (blue circles, green triangles, red crosses, yellow pluses) represent distinct groups or clusters. There appears to be spatial clustering. For instance, the blue group is concentrated in the north region, while red and yellow are more southward. The green one is well distributed in the region. The top right panel exhibits the Sea Surface Temperature (SST) alongside the latitude. There is a negative trend. The SST decreases as the latitude increases. The bottom left panel shows that there is no significant trend between the Sea surface temperature and the longitude. Its values are spread across longitudes, especially around 142-146°. The histogram and density plot reveal the SST is not normally distributed. There is presence of multimodality, implying spatially distinct temperature regimes.
+
+## (b) Random selection of the 5 points to be removed
+
+```{r,warning=FALSE,message=FALSE}
+library(tidyverse) # for data manipulation
+set.seed(123)  # Ensuring reproducibility
+
+# Select 5 random points
+removed_points <- SST_jittered %>% sample_n(5)
+
+# Remaining dataset
+train_data <- anti_join(SST_jittered, removed_points, 
+                        by = c("lon", "lat","sst"))
+
+# Print removed points
+print(removed_points)
+
+```
+
+## (c) Spatial model fitting using the variogram/kriging approach
+
+```{r,warning=FALSE,message=FALSE,cache=TRUE,fig.cap='Sample Variograms',fig-plot2}
+
+##  convert the data into a geodata object 
+sst_geo <- as.geodata(train_data, coords.col = c("lon", "lat"), 
+                      data.col = "sst")
+
+
+
+library(geoR)
+par(mfrow=c(3,2),mar=c(4,4,2,2))
+
+# Variogram plot without setting maximum distance with trend = cte
+sample_vario.cte <- variog(sst_geo, option='bin',trend = 'cte')
+plot(sample_vario.cte, main = "Sample Variogram with Trend Constante",
+     pch=19)
+
+# Variogram plot with 1st trend = 1st
+sample_vario.trend1 <- variog(sst_geo, option='bin',trend = '1st')
+plot(sample_vario.trend1, main = "Empirical Variogram with Trend 1st",
+     pch=19)
+
+# Variogram plot with trend = 2nd
+sample_vario.trend2 <- variog(sst_geo, option='bin',trend = '2nd')
+plot(sample_vario.trend2, main = "Empirical Variogram with Trend 2nd",
+     pch=19)
+```
+
+## Comments
+
+The three sample variograms (@fig-plot2) presented show the spatial structure of the data under different trend assumptions: constant, first-order, and second-order. In the variogram with a constant trend, the semi-variance increases with distance and does not appear to reach a clear sill within the plotted range. This suggests the presence of spatial autocorrelation over long distances and indicates the need to set a maximum distance (cut-off) at 10 to avoid unstable variogram fitting at large distances where few point pairs exist. Moreover, the jump at the origin suggests the presence of a nugget effect, which may capture measurement error or microscale variability.
+
+In contrast, the variogram under the first-order trend is flatter and reaches a sill more clearly, indicating that some of the spatial structure has been explained by the trend component. The presence of a nugget is still apparent due to the semi-variance not starting at zero, and it should be included in the model. The second-order trend variogram appears even flatter, with very little increase in semi-variance over distance, implying that most of the spatial trend has been removed and that the residuals have weak spatial autocorrelation. However, a nugget effect still seems to be present. Thus, including a nugget in all models is appropriate, and setting a reasonable maximum distance at 10 is advisable, especially in the constant trend case, to improve variogram stability.
+
+#### Variogram Approach
+
+**Constant trend model** **assumptions**
+
+1.  Trend/Mean Function
+
+we assume a constant mean function, also known as a zero-order polynomial trend.
+
+This means that the spatial process has a constant average value across the spatial domain:
+
+$$
+\mu(s) = \beta_0
+$$
+
+where:
+
+-   $\mu(s)$ is the spatial mean at location $s$,
+
+-   $\beta_0$ is the intercept (constant mean).
+
+​This assumption is appropriate when there's no significant large-scale trend in the data or after detrending has been applied.
+
+2.  Covariance Function
+
+We use the exponential covariance model, specified as:
+
+$$
+C(h) = \sigma^2 \exp\left(-\frac{h}{\phi}\right)
+$$
+
+-   $\sigma^2$ is the partial sill (spatial variance),
+
+-   $\phi$ is the range parameter (how quickly correlation decays with distance).
+
+The exponential model implies that spatial dependence decays rapidly with distance.
+
+3.  Nugget Effect
+
+A nugget effect is included to capture:
+
+-   Measurement error or microscale variation.
+
+-   A jump in the variogram at very short distances (as seen in the empirical variogram).
+
+The total variogram is modelled as:
+
+$$
+\gamma(h) = \tau^2 + \sigma^2 \left(1 - \exp\left(-\frac{h}{\phi}\right)\right)
+$$
+
+where:
+
+-   $\tau^2$ is the nugget effect (micro-scale variation and measurement error),
+-   $\sigma^2$ is the partial sill (spatial variance),
+-   $\phi$ is the range parameter (how quickly correlation reaches its maximum),
+-   $\tau^2$ is the nugget.
+
+**First and second-order polynomial trend assumptions**
+
+1.  Trend/Mean Function
+
+We assume a first-order polynomial trend (trend = '1st' or '2nd'), which means the mean of the spatial process is modelled as a linear function of spatial coordinates:
+
+$$
+\mu(s) = \beta_0 + \beta_1 x + \beta_2 y
+$$
+
+This accounts for large-scale spatial variation and trends in the data due to spatial drift or gradient.
+
+2.  Covariance Function
+
+We used the exponential covariance model, defined as:
+
+$$
+C(h) = \sigma^2 \exp\left(-\frac{h}{\phi}\right)
+$$
+
+where:
+
+-   $h$ is the separation distance between locations,
+
+-   $\sigma^2$ is the partial sill (spatially structured variance),
+
+-   $\phi$ is the range parameter (distance over which points are correlated).
+
+3.  Nugget Effect
+
+We included a nugget effect in the model to account for:
+
+-   Measurement error or microscale variation not captured by the spatial structure.
+
+-   The discontinuity at the origin of the variogram.
+
+This adds a discontinuous jump at distance $h=0$, modelled as:
+
+$$
+\gamma(h) = \tau^2 + \sigma^2 \left(1 - \exp\left(-\frac{h}{\phi}\right)\right)
+$$
+
+where:
+
+-   $\tau^2$ is the nugget effect (micro-scale variation and measurement error),
+
+-   $\sigma^2$ is the partial sill (spatial variance),
+
+-   $\phi$ is the range parameter (how quickly correlation reaches its maximum),
+
+-   $\tau^2$ is the nugget.
+
+### Constant Trend Models
+
+```{r,warning=FALSE,message=FALSE,cache=TRUE,results='hide'}
+
+## Empirical variogram plots with maximum distance equal to 10
+par(mfrow=c(3,2),mar=c(4,4,2,2))
+sample_vario.dist.cte <- variog(sst_geo, option='bin',
+                                trend = 'cte',max.dist = 10)
+plot(sample_vario.dist.cte, 
+     main = "Sample Variogram with Trend Constante",
+     pch=19)
+
+# Variogram plot with 1st trend = 1st
+sample_vario.dist.trend1 <- variog(sst_geo, option='bin',
+                                   trend = '1st',max.dist = 10)
+plot(sample_vario.dist.trend1, 
+     main = "Empirical Variogram with Trend 1st",
+     pch=19)
+
+# Variogram plot with trend = 2nd
+sample_vario.dist.trend2 <- variog(sst_geo, option='bin',
+                                   trend = '2nd',max.dist = 10)
+plot(sample_vario.dist.trend2, 
+     main = "Empirical Variogram with Trend 2nd",
+     pch=19)
+
+
+## Models fitting
+
+# Cte Model fitting using Variogram Approach with exponential covariance
+vari.cte.exp <- variofit(sample_vario.dist.cte,cov.model = "exponential", 
+                         nugget = 0.2,
+                         ini.cov.pars = c(60, 5),fix.nugget = TRUE)  
+#vari.cte.exp
+
+# Cte Model fitting using Variogram Approach with Matern 3/2 covariance 
+vari.cte.Matern32 <- variofit(sample_vario.dist.cte,cov.model = "matern",
+                          nugget = 0.2,kappa = 3/2,fix.nugget = TRUE,
+                          ini.cov.pars = c(60, 5))  
+#vari.cte.Matern32
+
+# Cte Model fitting using Variogram Approach with Matern 5/2 covariance 
+vari.cte.Matern52 <- variofit(sample_vario.dist.cte,cov.model = "matern",
+                          nugget = 0.2,fix.nugget = TRUE,kappa = 5/2,
+                          ini.cov.pars = c(60, 5))  # (partial sill, range))
+#vari.cte.Matern52
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='Estimated Parameters for Constant Trend Models',tbl-table1}
+library(gt)
+
+
+# Create parameter table from model outputs
+params_cte <- data.frame(
+  Model = c("Exponential", "Matern 3/2", "Matern 5/2"),
+  Nugget = c(vari.cte.exp$nugget,
+             vari.cte.Matern32$nugget,
+             vari.cte.Matern52$nugget),
+  Partial_Sill = c(vari.cte.exp$cov.pars[1],
+                   vari.cte.Matern32$cov.pars[1],
+                   vari.cte.Matern52$cov.pars[1]),
+  Range = c(vari.cte.exp$cov.pars[2],
+            vari.cte.Matern32$cov.pars[2],
+            vari.cte.Matern52$cov.pars[2]),
+  Kappa = c('-', 1.5, 2.5)
+)
+
+# Generate gt table
+gt_table_cte <- params_cte %>%
+  gt() %>%
+  tab_header(
+    title = "Estimated Parameters for Constant Trend Models"
+  ) %>%
+  fmt_number(
+    columns = c(Nugget, Partial_Sill, Range, Kappa),
+    decimals = 2
+  )
+
+gt_table_cte
+
+```
+
+```{r,warning=FALSE,message=FALSE,cache=TRUE,fig.cap='Cte Models Trend: Exponential vs Matern',fig-plot3}
+
+# Visual comparison
+# Base plot with empirical variogram
+plot(sample_vario.dist.cte, 
+     main = "Constant Trend: Exponential vs Matern", 
+     pch = 19)
+
+# Add lines for models
+lines(vari.cte.exp, col = "blue", lwd = 2)
+lines(vari.cte.Matern32, col = "green", lwd = 2)
+lines(vari.cte.Matern52, col = "red", lwd = 2)
+
+# Add legend
+legend("bottomright", legend = c("Exponential", "Matern32", "Matern52"),
+       col = c("blue", "green", "red"), lwd = 2, bty = "n")
+
+
+```
+
+## Comments
+
+The plot (@fig-plot3) shows a comparison between empirical semi-variances (black dots) and three fitted theoretical variogram models: Exponential (blue), Matern 3/2 (green), and Matern 5/2 (red). All models capture the general increasing trend of semi-variance with distance, particularly in the mid-range distances (between lags of approximately 2 to 6) and converge near the sill, indicating a good fit overall. The Matern models, particularly Matern 5/2, fit the empirical points more closely at shorter distances, suggesting they better capture short-range spatial dependence. The Exponential model slightly overestimates semi-variance at low distances but performs comparably at longer ranges. Overall, the Matern 5/2 provides the smoothest and most accurate representation of the spatial structure.
+
+#### Models Validation
+
+```{r,warning=FALSE,message=FALSE,cache=TRUE,fig.cap='Cte Model Trend Validation: Exponential',fig-plot4}
+
+library(geoR)
+# Model Validation
+# Set layout
+par(mfrow = c(3, 2), mar = c(4, 2, 0.5, 2))
+
+# First model
+xv.ml.cte.exp <- xvalid(sst_geo,model = vari.cte.exp)
+plot(xv.ml.cte.exp, error = TRUE, std.error = FALSE, pch = 19)
+mtext("Exponential, Trend = cte", side = 3, line = -2,
+      outer = TRUE, cex = 0.9)
+
+```
+
+## Comments
+
+The diagnostic plots (@fig-plot4) provides each a set of plots that includes a scatter plot (data vs. predicted), a Q-Q plot (observed vs theoretical prob), a spatial plot (Coord X vs Coord Y), a histogram (data - predicted), and two residual plots (residuals vs predicted and residuals vs data). These plots help assess the models’ performance in terms of prediction accuracy, residual distribution, spatial patterns, and error variability.
+
+The scatter plot shows a large spread around the diagonal line, particularly at higher predicted values (15-20), indicating substantial prediction errors. The points are more scattered, suggesting that the model with a constant trend has poor fit. The Q-Q plot exhibits a pronounced S-shape with significant deviations from the diagonal line at both tails, indicating that residuals are not normally distributed and have heavy tails. This suggests the model struggles with extreme values, leading to larger errors. The spatial plot shows a pronounced clustering of larger residuals around Coord X = 146 and Coord Y = 36-38, with more extreme residuals (larger red X’s). This indicates that the model captures spatial dependencies poorly, leaving significant not modelled spatial structure. The histogram of residuals is symmetric around zero but has a wide spread (ranging from -4 to 4) with heavy tails, reflecting larger errors and confirming the model’s difficulty with extreme values. Both Residual Plots (residuals vs predicted and residuals vs data) show no systematic bias, with residuals scattered around y = 0, but the spread is large, with numerous outliers around predicted values of 10 and 18, and data values of 5 and 20, indicating high variability in errors and a poor fit.
+
+This model performs worse, with the largest prediction errors (scatter plot), non-normal residuals with heavy tails (Q-Q plot), pronounced spatial clustering (spatial plot), and high error variability (residual plots).
+
+```{r,warning=FALSE,message=FALSE,cache=TRUE,fig.cap='Cte Model Trend Validation: Matern32',fig-plot5}
+library(geoR)
+# Model Validation
+# Second model
+# Set layout
+par(mfrow = c(3, 2), mar = c(4, 2, 0.5, 2))
+xv.ml_cte.Matern32 <- xvalid(sst_geo,model = vari.cte.Matern32)
+plot(xv.ml_cte.Matern32, error = TRUE, std.error = FALSE, pch = 19)
+mtext("Matern32, Trend = cte", side = 3, line = -2,
+      outer = TRUE, cex = 0.9)
+```
+
+## Comments
+
+The scatter plot from the diagnostic plots (@fig-plot5) shows the tightest clustering around the diagonal line among the three models, particularly at higher values (15-20), indicating the most accurate predictions and the best overall fit. The Q-Q plot shows residuals that are approximately normally distributed, with minor deviations at the tails, suggesting that Matern32 handles extreme values better than the other two models. The spatial plot shows clustering of larger residuals around Coord X = 146 and Coord Y = 36-38, but the pattern is the least pronounced among the three models, with fewer extreme residuals (smaller red X’s), indicating that Matern32 captures spatial dependencies more effectively. The histogram is symmetric around zero with a spread ranging from -4 to 4, tighter than Exponential and Matern52, with the least heavy tails, reflecting smaller errors overall. The residual plots show no systematic bias, with residuals scattered around y = 0, and the smallest spread among the three models, with the fewest outliers around predicted values of 10 and 18, and data values of 5 and 20, indicating the lowest error variability.
+
+In summary, Matern32 performs the best, with the tightest scatter plot clustering, a Q-Q plot showing the smallest deviations (residuals approximately normal with minor tail deviations), and the least spatial clustering, suggesting the most effective capture of spatial dependencies. Its histogram and residual plots show the smallest spread and fewest outliers, confirming the lowest error variability, likely due to its smoother kernel ($\nu$ = 3/2) better modelling spatial correlation compared to Matern52 $\nu$ = 5/2) and Exponential $\nu$ = 1/2).
+
+```{r,warning=FALSE,message=FALSE,fig.cap='Cte Model Trend Validation: Matern52',fig-plot6}
+# Model Validation
+library(geoR)
+# Third model
+# Set layout
+par(mfrow = c(3, 2), mar = c(4, 2, 0.5, 2))
+xv.ml_cte.Matern52 <- xvalid(sst_geo,model = vari.cte.Matern52)
+plot(xv.ml_cte.Matern52, error = TRUE, std.error = FALSE, pch = 19)
+mtext("Matern52, Trend cte", side = 3, line = -2, 
+      outer = TRUE, cex = 0.9)
+```
+
+## Comments
+
+The scatter plot shows a tighter clustering around the diagonal line compared to the Exponential model, particularly at mid-range predicted values (10-15), but the spread is still noticeable at higher values (15-20). This indicates a better fit than Exponential but not as good as Matern32 (@fig-plot6). The Q-Q plot shows moderate deviations from the diagonal line at the tails, less severe than Matern52 but more than Exponential, suggesting that residuals are not perfectly normally distributed and the model struggles with extreme values to a lesser extent. The spatial plot shows clustering of larger residuals around Coord X = 146 and Coord Y = 36-38, similar to Exponential, but the intensity is less pronounced (fewer extreme residuals), indicating that Matern52 captures some spatial dependencies better than Exponential. The histogram is symmetric around zero with a spread ranging from -4 to 4, slightly tighter than Exponential, reflecting moderate errors. The residual plots show no systematic bias, with residuals scattered around y = 0, and the spread is smaller than Exponential, with fewer outliers around predicted values of 10 and 18, and data values of 5 and 20, indicating reduced error variability compared to Exponential. Overall, Matern52 performs better, with a tighter scatter plot, a Q-Q plot showing moderate deviations (less severe than Exponential), and reduced spatial clustering, though still noticeable around the same coordinates, indicating improved but imperfect spatial modelling. Its residuals have a slightly tighter spread in the histogram and fewer outliers in the residual plots.
+
+In conclusion, the Exponential model performs the worst, with the largest prediction errors (scatter plot), non-normal residuals with heavy tails (Q-Q plot), pronounced spatial clustering (spatial plot), and high error variability (residual plots). The Matern52 one fits better than Exponential, with a tighter fit, more normal residuals, less spatial clustering, and reduced error variability, but it still underperforms compared to Matern32. Matern32 model performs the best, with the tightest fit, most normal residuals, least spatial clustering, and lowest error variability, indicating that its smoother kernel ($\nu$ = 3/2) captures spatial dependencies more effectively than Exponential ($\nu$ = 1/2) and Matern52 ($\nu$ = 5/2).
+
+### First Trend Models
+
+```{r,warning=FALSE,message=FALSE,cache=TRUE,results='hide'}
+
+# Variogram plot with 1st trend = 1st
+sample_vario.dist.trend1 <- variog(sst_geo, option='bin',
+                                   trend = '1st',max.dist = 10)
+
+# 1st Trend Model fitting using Variogram Approach with exponential covariance
+vari.trend1.exp <- variofit(sample_vario.dist.trend1,
+                            cov.model = "exponential",
+                            nugget = 1.5,fix.nugget = TRUE,
+                          ini.cov.pars = c(60, 5))
+#vari.trend1.exp
+
+# 1st Trend Model fitting using Variogram Approach with Matern 3/2 covariance 
+vari.trend1.Matern32 <- variofit(sample_vario.dist.trend1,
+                                 cov.model = "matern",
+                          nugget = 1.5,kappa = 3/2,fix.nugget = TRUE,
+                          ini.cov.pars = c(60, 5))
+#vari.trend1.Matern32
+
+# 1st Trend Model fitting using Variogram Approach with Matern 5/2 covariance 
+vari.trend1.Matern52 <- variofit(sample_vario.dist.trend1,
+                                 cov.model = "matern",
+                          nugget = 1.5,kappa = 5/2,fix.nugget = TRUE,
+                          ini.cov.pars = c(60, 5))
+#vari.trend1.Matern52
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='Estimated Parameters for 1st-Order Trend Models',tbl-table2}
+library(gt)
+
+# Create a data frame with parameter values
+params_table <- data.frame(
+  Model = c("Exponential", "Matern 3/2", "Matern 5/2"),
+  Nugget = c(vari.trend1.exp$nugget,
+             vari.trend1.Matern32$nugget,
+             vari.trend1.Matern52$nugget),
+  Partial_Sill = c(vari.trend1.exp$cov.pars[1],
+                   vari.trend1.Matern32$cov.pars[1],
+                   vari.trend1.Matern52$cov.pars[1]),
+  Range = c(vari.trend1.exp$cov.pars[2],
+            vari.trend1.Matern32$cov.pars[2],
+            vari.trend1.Matern52$cov.pars[2]),
+  Kappa = c('-', 3/2, 5/2)
+)
+
+# Generate a gt table
+params_table %>%
+  gt() %>%
+  tab_header(
+    title = "Estimated Parameters for 1st-Order Trend Models"
+  ) %>%
+  fmt_number(
+    columns = c(Nugget, Partial_Sill, Range, Kappa),
+    decimals = 2
+  )
+
+```
+
+```{r,warning=FALSE,message=FALSE,cache=TRUE,fig.cap='1st Models Trend: Exponential vs Matern',fig-plot7}
+# plot of the estimated and sample variogram
+# Visual comparison
+plot(sample_vario.dist.trend1, 
+     main = "1st Trend: Exponential vs Materns",
+     pch = 19)
+
+lines(vari.trend1.exp, col = "blue", lwd = 2, lty = 1)      # solid
+lines(vari.trend1.Matern32, col = "green", lwd = 2, lty = 2) # dashed
+lines(vari.trend1.Matern52, col = "red", lwd = 2, lty = 3)   # dotted
+
+legend("bottomright", legend = c("Exponential", "Matern32", "Matern52"),
+       col = c("blue", "green", "red"),
+       lwd = 2, lty = 1:3)
+
+```
+
+## Comments
+
+The plot (@fig-plot7) shows that the empirical semi-variance values are relatively constant, fluctuating around a value of 4 across distances from 0 to 12, with a slight dip near distance 0. It compares Exponential, Matern32, and Matern52 models against the empirical semivariogram. The inclusion of a linear trend flattens the variogram, indicating that much of the large-scale spatial variation has been removed. While the Matern models quickly reach a sill, suggesting very short-range dependence, the Exponential model provides a smoother rise that better matches the empirical pattern. Overall, the Exponential model offers a more appropriate fit after detrending, capturing the remaining spatial structure more effectively.
+
+Overall, the Matern52 with constant trend seems to be the best overall model, as it offers a more flexible and accurate representation of spatial structure without assuming a linear trend. However, if a linear spatial trend is theoretically justified or strongly supported by exploratory analysis, the Exponential with first-order trend is a good alternative that captures the residual spatial variability adequately.
+
+#### Models Validation
+
+```{r,message=FALSE,warning=FALSE,cache=TRUE,fig.cap='1st Trend Model Validation: Exponential',fig-plot8}
+# Model Validation
+# Set layout
+par(mfrow = c(3, 2), mar = c(4, 2, 0.5, 2))
+
+# First model
+xv.ml.trend1.exp <- xvalid(sst_geo,model = vari.trend1.exp)
+plot(xv.ml.trend1.exp, error = TRUE, std.error = FALSE, pch = 19)
+mtext("Exponential, Trend = 1st", side = 3, line = -2,
+      outer = TRUE, cex = 0.9)
+
+```
+
+```{r,message=FALSE,warning=FALSE,cache=TRUE,fig.cap='1st Trend Model Validation: Matern32',fig-plot9}
+# Model Validation
+# Second model
+# Set layout
+par(mfrow = c(3, 2), mar = c(4, 2, 0.5, 2))
+xv.ml_trend1.Matern32 <- xvalid(sst_geo,model = vari.trend1.Matern32)
+plot(xv.ml_trend1.Matern32, error = TRUE, std.error = FALSE, pch = 19)
+mtext("Matern32, Trend = 1st", side = 3, line = -2,
+      outer = TRUE, cex = 0.9)
+```
+
+```{r,message=FALSE,warning=FALSE,cache=TRUE,fig.cap='1st Trend Model Validation: Matern52',fig-plot10}
+# Model Validation
+# Second model
+# Set layout
+par(mfrow = c(3, 2), mar = c(4, 2, 0.5, 2))
+xv.ml_trend1.Matern52 <- xvalid(sst_geo,model = vari.trend1.Matern52)
+plot(xv.ml_trend1.Matern52, error = TRUE, std.error = FALSE, pch = 19)
+mtext("Matern52, Trend = 1st", side = 3, line = -2,
+      outer = TRUE, cex = 0.9)
+
+```
+
+## Comments
+
+The diagnostic plots (@fig-plot8, @fig-plot9, @fig-plot10) reveal that the Exponential model's scatter plot shows the tightest alignment between predicted and observed data, indicating strong predictive accuracy, but its Q-Q plot exhibits a wider deviation from the theoretical distribution, particularly at the tails, suggesting issues with capturing extreme values, and its residuals histogram shows some skewness, indicating potential bias. In contrast, the Matern32 and Matern52 models have scatter plots with wider spreads, reflecting less precise predictions, but their Q-Q plots deviate only slightly from the theoretical distribution, suggesting a better fit for extreme values. Matern32's residuals histogram is the most symmetric around zero, indicating minimal bias and the best overall performance, while Matern52's histogram shows slightly more skewness but less than the Exponential, placing its performance between the two. Therefore, despite the Exponential's tighter scatter plot, Matern32 performs the best due to its minimal Q-Q deviation and balanced residuals, followed by Matern52, with the Exponential performing the poorest due to its wider Q-Q deviation and bias. In summary, compared to Matern32 constant trend, the Matern32 first order trend performs the best overall.
+
+#### Kriging Approach Model for the best model Matern32 with first order trend
+
+```{r,message=FALSE,warning=FALSE,cache=TRUE,fig.cap='1st Models Trend: Matern32',fig-plot11,fig.show="asis"}
+# Create a prediction grid
+# Get bounding box from your sample coordinates
+x.range <- range(sst_geo$coords[, 1])  # Longitude
+y.range <- range(sst_geo$coords[, 2])  # Latitude
+
+# Generate a 100x100 prediction grid
+grid <- expand.grid(
+  lon = seq(x.range[1], x.range[2], length.out = 100),
+  lat = seq(y.range[1], y.range[2], length.out = 100)
+)
+
+# Kriging on the grid using Matern32 model
+kriged_grid_trend1.Matern32 <- krige.conv(sst_geo,
+                              locations = as.matrix(grid),
+                              krige = krige.control(trend.d = "1st",
+                              obj.model = vari.trend1.Matern32))
+
+
+# 1. Kriging Mean
+image(kriged_grid_trend1.Matern32,
+      col = viridis::viridis(100),
+      zlim = c(0, max(kriged_grid_trend1.Matern32$predict, na.rm = TRUE)),
+      coords.data = sst_geo$coords,
+      main = 'Kriging Mean',
+      xlab = 'Longitude', ylab = 'Latitude')
+```
+
+```{r,message=FALSE,warning=FALSE,cache=TRUE,fig.cap='1st Models Trend: Matern32',fig-plot12,fig.show="asis"}
+# Create a prediction grid
+# Get bounding box from your sample coordinates
+x.range <- range(sst_geo$coords[, 1])  # Longitude
+y.range <- range(sst_geo$coords[, 2])  # Latitude
+
+# Generate a 100x100 prediction grid
+grid <- expand.grid(
+  lon = seq(x.range[1], x.range[2], length.out = 100),
+  lat = seq(y.range[1], y.range[2], length.out = 100)
+)
+
+# 2. Kriging Variance
+image(kriged_grid_trend1.Matern32,
+      values = kriged_grid_trend1.Matern32$krige.var,
+      col = heat.colors(100)[100:1],
+      zlim = c(0, max(kriged_grid_trend1.Matern32$krige.var, na.rm = TRUE)),
+      coords.data = sst_geo$coords,
+      main = 'Kriging Variance',
+      xlab = 'Longitude', ylab = 'Latitude')
+
+```
+
+## Comments
+
+The Kriging Mean and Kriging Variance plots (@fig-plot11, @fig-plot12) illustrate the predictive performance of a kriging model over a spatial region defined by longitude (135 to 155) and latitude (32 to 40), with data points scattered across the area. The Kriging Mean plot shows a smooth gradient from yellow (lower values, \~5) in the southwest to blue (higher values, \~20) in the northeast, indicating a clear spatial trend where the predicted values increase diagonally from the bottom-left to the top-right, aligning with the data points' distribution. In contrast, the Kriging Variance plot is uniformly red, suggesting a constant predictive variance (around 2-3) across the entire region, which implies the model assumes consistent uncertainty regardless of location. This uniformity in variance might indicate that the kriging model, while capturing the mean trend effectively, does not account for spatial variations in uncertainty, potentially due to the sparse data or a simplistic covariance structure, limiting its ability to reflect localised prediction reliability.
+
+## (d) Gaussian Process model fitting using maximum likelihood
+
+#### Constant Trend Models
+
+```{r,message=FALSE,warning=FALSE,cache=TRUE,results='hide'}
+
+## Models fitting
+
+# Cte Model fitting using MLE Approach with exponential covariance
+library(geoR)
+gp_ml.cte.exp <- likfit(sst_geo, ini.cov.pars = c(60, 5), 
+                        cov.model = "exponential",trend = 'cte',
+                        fix.nugget = T, nugget = 0.2)
+
+#gp_ml.cte.exp
+
+# Cte Model fitting using MLE Approach with Matern32 covariance
+gp_ml.cte.matern32 <- likfit(sst_geo, ini.cov.pars = c(60, 5), 
+                        cov.model = "matern",trend = 'cte',
+                        fix.nugget = T, nugget = 0.2,kappa = 3/2)
+
+#gp_ml.cte.matern32
+
+# Cte Model fitting using MLE Approach with Matern52 covariance
+gp_ml.cte.matern52 <- likfit(sst_geo, ini.cov.pars = c(60, 5), 
+                        cov.model = "matern",trend = 'cte',
+                        fix.nugget = T, nugget = 0.2,kappa = 5/2)
+
+#gp_ml.cte.matern52
+```
+
+```{r,tab.cap='Gaussian Process Model Comparison',tbl-table3}
+library(gt)
+
+# Create comparison data frame with beta (mean) parameters
+model_comparison <- data.frame(
+  Model = c("Exponential", "Matérn (3/2)", "Matérn (5/2)"),
+  Beta = c(gp_ml.cte.exp$beta, gp_ml.cte.matern32$beta, gp_ml.cte.matern52$beta),
+  Nugget = rep(0.2, 3),
+  Partial_Sill = c(gp_ml.cte.exp$cov.pars[1], 
+                  gp_ml.cte.matern32$cov.pars[1], 
+                  gp_ml.cte.matern52$cov.pars[1]),
+  Range = c(gp_ml.cte.exp$cov.pars[2], 
+           gp_ml.cte.matern32$cov.pars[2], 
+           gp_ml.cte.matern52$cov.pars[2]),
+  LogLik = c(gp_ml.cte.exp$loglik, 
+            gp_ml.cte.matern32$loglik, 
+            gp_ml.cte.matern52$loglik),
+  AIC = c(gp_ml.cte.exp$AIC, 
+         gp_ml.cte.matern32$AIC, 
+         gp_ml.cte.matern52$AIC)
+)
+
+# Create gt table
+model_comparison %>%
+  gt() %>%
+  tab_header(
+    title = "Gaussian Process Model Comparison",
+    subtitle = "Maximum Likelihood Estimation Results"
+  ) %>%
+  fmt_number(columns = c(2:7), decimals = 3) %>%  # Increased decimals for beta
+  cols_label(
+    Model = "Covariance \n Model",
+    Beta = "Mean \n (beta_0)",
+    Nugget = "Nugget \n (tausq)",
+    Partial_Sill = "Partial Sill \n (phi)",
+    Range = "Range \n (phi)",
+    LogLik = "Log \n Likelihood",
+    AIC = "AIC"
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_options(
+    table.width = "95%",
+    table.font.size = "12px",  # Reduce font size to fit more content
+    column_labels.font.size = "10px",  # Smaller font for column headers
+    column_labels.font.weight = "bold",
+    table.align = "center"
+  ) %>%
+  cols_width(
+    Model ~ px(100),  # Manually set column widths to ensure fit
+    Beta ~ px(70),
+    Nugget ~ px(70),
+    Partial_Sill ~ px(70),
+    Range ~ px(70),
+    LogLik ~ px(70),
+    AIC ~ px(50)
+  ) %>%
+  tab_style(
+    style = cell_text(align = "center", v_align = "middle"),
+    locations = cells_body()
+  ) %>%
+  tab_footnote(
+    footnote = "All models use constant mean (trend = 'cte')",
+    locations = cells_column_labels(columns = "Beta")
+  )
+
+```
+
+## Comments
+
+This table (@tbl-table3) presents maximum likelihood estimates for Gaussian Process (GP) models with a constant mean, using Exponential and Matérn covariance functions ($\nu$ = 3/2 and 5/2). The Exponential model performs best, with the lowest AIC (302.416) and highest log-likelihood (−148.208), indicating a strong overall fit. It also has the largest range (7.259) and highest partial sill (28.418), suggesting it captures broader and stronger spatial dependence compared to the Matérn models. Both Matérn models yield shorter range parameters and higher AIC values, implying less effective modelling of the spatial structure under a constant mean assumption.
+
+#### Model Validation
+
+```{r,warning=FALSE,message=FALSE,cache=TRUE,fig.cap='Validation of MLE Model: Exp, cte trend',fig-plot13}
+# Model Validation
+# Set layout
+par(mfrow = c(3, 2), mar = c(4, 2, 0.5, 2))
+
+# First model
+xv.gp_ml.cte.exp <- xvalid(sst_geo,model = gp_ml.cte.exp)
+plot(xv.gp_ml.cte.exp, error = TRUE, std.error = FALSE, pch = 19)
+mtext("MLE Model: Exponential, Trend = cte", side = 3, line = -2,
+      outer = TRUE, cex = 0.56)
+```
+
+```{r,warning=FALSE,message=FALSE,fig.cap='Validation of MLE Model: Matern32, cte trend',fig-plot14}
+# Model Validation
+# Set layout
+par(mfrow = c(3, 2), mar = c(4, 2, 0.5, 2))
+
+# Second model
+xv.gp_ml.cte.matern32 <- xvalid(sst_geo,model = gp_ml.cte.matern32)
+plot(xv.gp_ml.cte.matern32, error = TRUE, std.error = FALSE, pch = 19)
+mtext("MLE Model: Matern32, Trend = cte", side = 3, line = -2,
+      outer = TRUE, cex = 0.56)
+```
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Validation of MLE Model: Matern52, cte trend',fig-plot15,fig.show='asis'}
+# Model Validation
+# Set layout
+par(mfrow = c(3, 2), mar = c(4, 2, 0.5, 2))
+
+# First model
+xv.gp_ml.cte.matern52 <- xvalid(sst_geo,model = gp_ml.cte.matern52)
+plot(xv.gp_ml.cte.matern52, error = TRUE, std.error = FALSE, pch = 19)
+mtext("MLE Model: Matern52, Trend = cte", side = 3, line = -2,
+      outer = TRUE, cex = 0.56)
+```
+
+## Comments
+
+The diagnostic plots (@fig-plot13, @fig-plot14, @fig-plot15) for the Maximum Likelihood Estimation (MLE) models evaluate three Gaussian Process models, Exponential, Matérn ($\nu$=3/2), and Matérn ($\nu$=5/2), all with a constant trend. For the Exponential model, the scatter plot shows a tight linear trend between observed and predicted data, the Q-Q plot aligns closely with the theoretical line with minimal tail deviation, the spatial plot indicates high accuracy with close matches between observed and predicted points, the residual histogram is centered around zero with most residuals between -1 and 1, and residual scatter plots confirm homoscedasticity with no bias and low spread. The Matérn ($\nu$=5/2) model’s scatter plot shows a slightly looser linear trend, the Q-Q plot has noticeable tail deviations, the spatial plot shows moderate alignment, the residual histogram spans -2 to 2, and residual plots indicate homoscedasticity but greater uncertainty. The Matérn ($\nu$=3/2) model, with an AIC (324.887) between Exponential (302.416) and Matérn ($\nu$=5/2) (335.133), likely shows intermediate performance, with slightly better alignment and residuals than Matérn ($\nu$=5/2) but not as tight as Exponential. Overall, the Exponential model is the best, as its superior fit, distribution capture, and smaller residuals align with its lowest AIC, making it the optimal choice for this dataset.
+
+#### First order trend
+
+```{r,message=FALSE,warning=FALSE,results='hide',cache=TRUE}
+## Models fitting
+
+# Cte Model fitting using MLE Approach with exponential covariance
+library(geoR)
+gp_ml.trend1.exp <- likfit(sst_geo, ini.cov.pars = c(60, 5), 
+                        cov.model = "exponential",trend = '1st',
+                        fix.nugget = T, nugget = 1.5)
+
+#gp_ml.trend1.exp
+
+# Cte Model fitting using MLE Approach with Matern32 covariance
+gp_ml.trend1.matern32 <- likfit(sst_geo, ini.cov.pars = c(60, 5), 
+                        cov.model = "matern",trend = '1st',
+                        fix.nugget = T, nugget = 1.5,kappa = 3/2)
+
+#gp_ml.trend1.matern32
+
+# Cte Model fitting using MLE Approach with Matern52 covariance
+gp_ml.trend1.matern52 <- likfit(sst_geo, ini.cov.pars = c(60, 5), 
+                        cov.model = "matern",trend = '1st',
+                        fix.nugget = T, nugget = 1.5,kappa = 5/2)
+
+#gp_ml.trend1.matern52
+
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='First-Order Trend GP Model Comparison',tbl-table4}
+library(gt)
+# Create comparison data frame
+model_comparison <- data.frame(
+  Model = c("Exponential", "Matérn3/2", "Matérn5/2"),
+  Beta_Intercept = c(gp_ml.trend1.exp$beta[1], 
+                    gp_ml.trend1.matern32$beta[1], 
+                    gp_ml.trend1.matern52$beta[1]),
+  Beta_Lon = c(gp_ml.trend1.exp$beta[2], 
+              gp_ml.trend1.matern32$beta[2], 
+              gp_ml.trend1.matern52$beta[2]),
+  Beta_Lat = c(gp_ml.trend1.exp$beta[3], 
+              gp_ml.trend1.matern32$beta[3], 
+              gp_ml.trend1.matern52$beta[3]),
+  Nugget = rep(1.5, 3),
+  Partial_Sill = c(gp_ml.trend1.exp$cov.pars[1], 
+                  gp_ml.trend1.matern32$cov.pars[1], 
+                  gp_ml.trend1.matern52$cov.pars[1]),
+  Range = c(gp_ml.trend1.exp$cov.pars[2], 
+           gp_ml.trend1.matern32$cov.pars[2], 
+           gp_ml.trend1.matern52$cov.pars[2]),
+  LogLik = c(gp_ml.trend1.exp$loglik, 
+            gp_ml.trend1.matern32$loglik, 
+            gp_ml.trend1.matern52$loglik),
+  AIC = c(gp_ml.trend1.exp$AIC, 
+         gp_ml.trend1.matern32$AIC, 
+         gp_ml.trend1.matern52$AIC)
+)
+
+# Create publication-quality table
+model_comparison %>%
+  gt() %>%
+  tab_header(
+    title = "First-Order Trend GP Model Comparison",
+    subtitle = "Maximum Likelihood Estimation Results"
+  ) %>%
+  fmt_number(columns = c(2:9), decimals = 3) %>%
+  cols_label(
+    Model = "Covariance Model",
+    Beta_Intercept = "Intercept \n (beta0)",
+    Beta_Lon = "Lon \n (beta1)",
+    Beta_Lat = "Lat \n (beta2)",
+    Nugget = "Nugget \n (tausq)",
+    Partial_Sill = "Sill \n (sigmasq)",
+    Range = "Range \n (phi)",
+    LogLik = "Log \n Likelihood",
+    AIC = "AIC"
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_options(
+    table.width = "95%",  # Keep table width at 95%
+    table.font.size = "12px",  # Reduce font size to fit more content
+    column_labels.font.size = "10px",  # Smaller font for column headers
+    table.align = "center"
+  ) %>%
+  cols_width(
+    Model ~ px(100),  # Manually set column widths to ensure fit
+    Beta_Intercept ~ px(80),
+    Beta_Lon ~ px(60),
+    Beta_Lat ~ px(60),
+    Nugget ~ px(60),
+    Partial_Sill ~ px(60),
+    Range ~ px(60),
+    LogLik ~ px(60),
+    AIC ~ px(60)
+  ) %>%
+  tab_style(
+    style = cell_text(align = "center", v_align = "middle"),
+    locations = cells_body()
+  ) %>%
+  tab_footnote(
+    footnote = "First-order trend: SST ~ beta0 + beta1₁*lon +beta2*lat",
+    locations = cells_title(groups = "subtitle")
+  )
+```
+
+## Comments
+
+The table ( @tbl-table4) compares first-order trend Gaussian Process (GP) models estimated via maximum likelihood, using three different covariance functions: Exponential, Matérn $\nu$ = 3/2, and Matérn $\nu$ = 5/2. All models include spatial trend terms for longitude and latitude, and the nugget ($\tau^2$) is fixed at 1.5 across all cases. The Matérn models outperform the Exponential model in terms of both log-likelihood and AIC, indicating a better fit to the data. Among them, the Matérn $\nu$ = 5/2 model achieves the lowest AIC (341.191) and a higher log-likelihood (−165.595) than the Exponential model, suggesting it captures the spatial structure more effectively. Additionally, the Matérn models have shorter range parameters, implying they model finer-scale spatial dependence. The Matérn $\nu$ = 5/2 model with a first-order trend provides the best fit among the models considered, offering both improved likelihood and AIC while accounting for local spatial variation through a flexible covariance structure.
+
+In comparison to the first-order trend models, all constant mean models show better fit statistics, particularly the Exponential model, which substantially outperforms all first-order trend variants. This indicates that incorporating spatial trends via longitude and latitude does not improve model performance likely because the spatial variation is better captured through the covariance structure alone rather than explicit trends.
+
+In conclusion, the Exponential GP model with a constant mean remains the best overall model, offering the most efficient balance of model complexity and spatial explanatory power. Adding a trend increases model complexity without improving fit, as reflected by higher AIC values in the trend-based models.
+
+#### Model Validation
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Validation of MLE Model: Exp, 1st trend',fig-plot16}
+# Model Validation
+# Set layout
+par(mfrow = c(3, 2), mar = c(4, 2, 0.5, 2))
+
+# First model
+xv.gp_ml.trend1.exp <- xvalid(sst_geo,model = gp_ml.trend1.exp)
+plot(xv.gp_ml.trend1.exp, error = TRUE, std.error = FALSE, pch = 19)
+mtext("MLE Model: Exponential, Trend = 1st", side = 3, line = -2,
+      outer = TRUE, cex = 0.56)
+
+```
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Validation of MLE Model: Matern32, 1st trend',fig-plot17}
+# Model Validation
+# Set layout
+par(mfrow = c(3, 2), mar = c(4, 2, 0.5, 2))
+
+# First model
+xv.gp_ml.trend1.matern32 <- xvalid(sst_geo,model = gp_ml.trend1.matern32)
+plot(xv.gp_ml.trend1.matern32, error = TRUE, std.error = FALSE, pch = 19)
+mtext("MLE Model: Matern32, Trend = 1st", side = 3, line = -2,
+      outer = TRUE, cex = 0.56)
+```
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Validation of MLE Model: Matern52, 1st trend',fig-plot18}
+# Model Validation
+# Set layout
+par(mfrow = c(3, 2), mar = c(4, 2, 0.5, 2))
+
+# First model
+xv.gp_ml.trend1.matern52 <- xvalid(sst_geo,model = gp_ml.trend1.matern52)
+plot(xv.gp_ml.trend1.matern52, error = TRUE, std.error = FALSE, pch = 19)
+mtext("MLE Model: Matern52, Trend = 1st", side = 3, line = -2,
+      outer = TRUE, cex = 0.56)
+```
+
+## Comments
+
+The diagnostic plots (@fig-plot16, @fig-plot17, @fig-plot18) for the Matérn ($\nu$=3/2) model with a first-order trend show a strong linear trend in the scatter plot of observed vs. predicted data with some scatter, a Q-Q plot with slight tail deviations indicating issues with extreme values, a spatial plot with moderate alignment between observed and predicted points, a residual histogram centered around zero with most residuals between -2 and 2, and residual scatter plots confirming homoscedasticity but reflecting some predictive uncertainty. The Matérn ($\nu$=5/2) first-order trend model (AIC: 341.191) performs similarly but slightly better, with a tighter Q-Q plot alignment, while the Exponential first-order trend model (AIC: 345.286) shows the weakest fit. Compared to the constant trend (CTE) models, where the Exponential model excelled (AIC: 302.416) with tighter scatter, better Q-Q alignment, more accurate spatial predictions, and residuals mostly between -1 and 1, followed by Matérn ($\nu$=3/2) (AIC: 324.887) and Matérn ($\nu$=5/2) (AIC: 335.133), the CTE models consistently outperform their first-order trend counterparts, as their lower AICs and better diagnostic metrics indicate a superior balance of fit and simplicity, making the CTE Exponential model the best overall choice for this dataset.
+
+```{r,message=FALSE,warning=FALSE,tab.cap='Geostatistical Model Comparison using MLE',tbl-table5}
+library(gt)
+library(geoR)
+# Create comprehensive comparison data frame
+model_comparison <- data.frame(
+  Model = c("Exponential (cte)", "Matérn3/2 (cte)", "Matérn5/2 (cte)",
+            "Exponential (trend)", "Matérn3/2 (trend)", "Matérn5/2 (trend)"),
+  
+  # Mean structure parameters
+  Intercept = c(gp_ml.cte.exp$beta, 
+                gp_ml.cte.matern32$beta, 
+                gp_ml.cte.matern52$beta,
+                gp_ml.trend1.exp$beta[1], 
+                gp_ml.trend1.matern32$beta[1], 
+                gp_ml.trend1.matern52$beta[1]),
+  
+  Lon_Coeff = c(rep('-', 3),
+                gp_ml.trend1.exp$beta[2], 
+                gp_ml.trend1.matern32$beta[2], 
+                gp_ml.trend1.matern52$beta[2]),
+  
+  Lat_Coeff = c(rep('-', 3),
+                gp_ml.trend1.exp$beta[3], 
+                gp_ml.trend1.matern32$beta[3], 
+                gp_ml.trend1.matern52$beta[3]),
+  
+  # Covariance parameters
+  Nugget = 0.2,
+  
+  Partial_Sill = c(gp_ml.cte.exp$cov.pars[1], 
+                  gp_ml.cte.matern32$cov.pars[1], 
+                  gp_ml.cte.matern52$cov.pars[1],
+                  gp_ml.trend1.exp$cov.pars[1], 
+                  gp_ml.trend1.matern32$cov.pars[1], 
+                  gp_ml.trend1.matern52$cov.pars[1]),
+  
+  Range = c(gp_ml.cte.exp$cov.pars[2], 
+           gp_ml.cte.matern32$cov.pars[2], 
+           gp_ml.cte.matern52$cov.pars[2],
+           gp_ml.trend1.exp$cov.pars[2], 
+           gp_ml.trend1.matern32$cov.pars[2], 
+           gp_ml.trend1.matern52$cov.pars[2]),
+  
+  # Fit statistics
+  LogLik = c(gp_ml.cte.exp$loglik, 
+            gp_ml.cte.matern32$loglik, 
+            gp_ml.cte.matern52$loglik,
+            gp_ml.trend1.exp$loglik, 
+            gp_ml.trend1.matern32$loglik, 
+            gp_ml.trend1.matern52$loglik),
+  
+  AIC = c(gp_ml.cte.exp$AIC, 
+         gp_ml.cte.matern32$AIC, 
+         gp_ml.cte.matern52$AIC,
+         gp_ml.trend1.exp$AIC, 
+         gp_ml.trend1.matern32$AIC, 
+         gp_ml.trend1.matern52$AIC)
+)
+
+# Create publication-quality table
+model_comparison %>%
+  gt() %>%
+  tab_header(
+    title = "Geostatistical Model Comparison using MLE",
+    subtitle = "Constant Mean vs. First-Order Trend Models"
+  ) %>%
+  fmt_number(columns = c(2:9), decimals = 3) %>%
+  cols_label(
+    Model = "Covariance Model",
+    Intercept = "Intercept beta_0",
+    Lon_Coeff = "Lon \n (beta1)",
+    Lat_Coeff = "Lat \n (beta2)",
+    Nugget = "Nugget \n (tausq)",
+    Partial_Sill = "Sill \n (sigmasq)",
+    Range = "Range \n (phi)",
+    LogLik = "Log \n Likelihood",
+    AIC = "AIC"
+  ) %>%
+  tab_row_group(
+    label = "First-Order Trend Models",
+    rows = 4:6
+  ) %>%
+  tab_row_group(
+    label = "Constant Mean Models",
+    rows = 1:3
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "gray95"),
+    locations = cells_row_groups()
+  ) %>%
+  tab_options(
+    table.width = "100%",  # Keep table width at 100%
+    table.font.size = "12px",  # Reduce font size to fit more content
+    column_labels.font.size = "10px",  # Smaller font for column headers
+    row_group.font.size = "12px",
+    row_group.font.weight = "bold",
+    table.align = "center"
+  ) %>%
+  cols_width(
+    Model ~ px(100),  # Manually set column widths to ensure fit
+    Intercept ~ px(80),
+    Lon_Coeff ~ px(60),
+    Lat_Coeff ~ px(60),
+    Nugget ~ px(60),
+    Partial_Sill ~ px(60),
+    Range ~ px(60),
+    LogLik ~ px(60),
+    AIC ~ px(60)
+  ) %>%
+  tab_style(
+    style = cell_text(align = "center", v_align = "middle"),
+    locations = cells_body()
+  ) %>%
+  tab_footnote(
+    footnote = "Nugget fixed at 1.5 for 1st trend and 0.2 for cte trend",
+    locations = cells_column_labels(columns = "Nugget")
+  ) %>%
+  tab_source_note(
+    source_note = "Comparison of spatial covariance structures with different mean specifications"
+  )
+```
+
+## Comments
+
+The comparison table (@tbl-table5) summarises geostatistical models fitted using maximum likelihood estimation (MLE), contrasting constant mean models with first-order trend models across three covariance structures: Exponential, Matérn $\nu$ = 3/2, and Matérn $\nu$ = 5/2. Among the constant mean models, the Exponential covariance model achieves the lowest AIC (302.416) and highest log-likelihood (−148.208), indicating the best fit in that group. For the first-order trend models, all three exhibit higher AIC values and lower log-likelihoods, suggesting poorer overall fit despite accounting for spatial trends via longitude and latitude.
+
+Interestingly, while the trend models reduce the sill and range substantially, indicating less residual spatial dependence after removing the large-scale trend their performance metrics (AIC and log-likelihood) do not improve. This implies that introducing a linear spatial trend does not enhance the explanatory power of the model in this case.
+
+In conclusion, the Exponential model with a constant mean provides the best overall fit to the data, balancing model simplicity and spatial explanatory power as indicated by the lowest AIC and best likelihood score.
+
+### Prediction of Gaussian Process (Maximum Likelihood)
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Prediction using GP MLE',fig-plot19}
+# Predict using GP with cte trend
+gp_ml.cte.pred <- likfit(sst_geo, ini.cov.pars = c(60, 5), 
+                    cov.model = "exponential", trend = 'cte',
+                    fix.nugget = TRUE, nugget = 0.2)
+
+gp_cte.pred <- krige.conv(sst_geo, 
+                        locations = as.matrix(grid),
+                        krige = krige.control(trend.d = "cte",
+                                             obj.model = gp_ml.cte.pred))
+
+
+
+# 1. Gaussian Process Predictive Mean
+image(gp_cte.pred,
+      col = viridis::viridis(100),
+      zlim = c(0, max(gp_cte.pred$predict, na.rm = TRUE)),
+      coords.data = sst_geo$coords,
+      main = 'Gaussian Process Predictive Mean',
+      xlab = 'Longitude', ylab = 'Latitude')
+```
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Prediction using GP MLE',fig-plot20}
+
+# 2. Gaussian process Variance
+image(gp_cte.pred,
+      values = gp_cte.pred$krige.var,
+      col = heat.colors(100)[100:1],
+      zlim = c(0, max(gp_cte.pred$krige.var, na.rm = TRUE)),
+      coords.data = sst_geo$coords,
+      main = 'Gaussian Process Predictive Variance',
+      xlab = 'Longitude', ylab = 'Latitude')
+```
+
+## Comments
+
+The Gaussian Process (GP) predictive mean and variance plots (@fig-plot19, @fig-plot20) are based on a Sea Surface Temperature (SST) dataset, mapping SST values across a spatial region defined by longitude (135 to 155) and latitude (32 to 40), with observed SST data points shown as black dots. The predictive mean plot displays a heatmap where colours indicate SST values, transitioning from lower temperatures (yellow, around 32 latitude and 135-140 longitude) to higher temperatures (blue, around 38 latitude and 150-155 longitude), revealing a clear southwest-to-northeast warming trend, consistent with a first-order trend model for SST. The predictive variance plot, using the same grid, shows variance levels with colours from yellow (low variance) to red (high variance), with low variance in data-dense areas (e.g., around 34 latitude and 140-145 longitude), indicating high confidence in SST predictions, and high variance in the northeast (around 38 latitude and 150-155 longitude) where data is sparse, reflecting greater uncertainty in SST estimates. These plots suggest the GP model effectively captures the spatial trend in SST but has higher predictive reliability in regions with more SST observations and less certainty in sparsely sampled areas.
+
+## (e) Bayesian approach with discrete priors
+
+### Models' Assumption
+
+```{r,message=FALSE,warning=FALSE,tab.cap='Bayesian Model-Specific Assumptions',tbl-table6}
+
+library(gt)
+
+assumptions <- data.frame(
+  Component = c("Mean Structure", "Covariance", "Smoothness"),
+  Constant_Model = c(
+    "mu(s) = beta0",
+    "Exponential: C(h) = sigmasq*exp(−h/phi)",
+    "Rough (nu=0.5 implied)"
+  )
+  
+)
+
+assumptions %>%
+  gt() %>%
+  tab_header(
+    title = "Model-Specific Assumptions"
+  ) %>%
+  cols_label(
+    Component = "Component",
+    Constant_Model = "Constant Model (Exp)"
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_style(
+    style = cell_borders(
+      sides = c("top", "bottom"),
+      color = "gray",
+      weight = px(1)
+    ),
+    locations = cells_body()
+  ) %>%
+  tab_options(
+    table.width = "90%",
+    table.font.size = "14px",
+    column_labels.font.size = "15px",
+    heading.title.font.size = "20px"
+  ) 
+```
+
+### Bayesian Models fitting
+
+```{r,message=FALSE,warning=FALSE,results='hide'}
+## Bayesian Models fitting
+library(geoR)
+# Coarser prediction grid (30x30 = 900 points)
+# Create prediction grid
+x.range <- range(sst_geo$coords[, 1])  # Longitude
+y.range <- range(sst_geo$coords[, 2])  # Latitude
+pred_grid <- as.matrix(expand.grid(
+  lon = seq(x.range[1], x.range[2], length.out = 30),
+  lat = seq(y.range[1], y.range[2], length.out = 30)
+))
+
+
+# Constant Mean (Exponential Covariance)
+bayes_cte_exp <- krige.bayes(
+  geodata = sst_geo,
+  locations = pred_grid,
+  model = model.control(
+    trend.d = "cte",
+    trend.l = "cte",
+    cov.model = "exponential"
+  ),
+  prior = prior.control(
+    beta.prior = "flat",
+    sigmasq.prior = "uniform",
+    sigmasq = c(1, 30),
+    phi.prior = "reciprocal",
+    phi.discrete = seq(0.5, 10, length.out = 51),
+    tausq.rel.prior = "uniform",
+    tausq.rel.discrete = seq(0.05, 0.15, length.out = 11)
+  ),
+  output = output.control(moments = TRUE, signal = TRUE,
+                          n.predictive = 1000)
+)
+
+```
+
+```{r,message=FALSE,warning=FALSE,cache=TRUE,tab.cap='Bayesian Kriging Parameters',tbl-table7}
+library(geoR)
+library(gt)
+
+# Extract posterior means for parameters
+param_table <- data.frame(
+  Parameter = c("Intercept(beta0)", 
+                "Partial Sill(sigmasq)", 
+                "Range(phi)", 
+                "Nugget(tausq)"),
+  Mean = c(
+    mean(bayes_cte_exp$posterior$sample$beta),
+    mean(bayes_cte_exp$posterior$sample$sigmasq),
+    mean(bayes_cte_exp$posterior$sample$phi),
+    mean(bayes_cte_exp$posterior$sample$tausq.rel) * 
+      mean(bayes_cte_exp$posterior$sample$sigmasq)
+  ),
+  SD = c(
+    sd(bayes_cte_exp$posterior$sample$beta),
+    sd(bayes_cte_exp$posterior$sample$sigmasq),
+    sd(bayes_cte_exp$posterior$sample$phi),
+    sd(bayes_cte_exp$posterior$sample$tausq.rel * 
+         bayes_cte_exp$posterior$sample$sigmasq)
+  )
+)
+
+# Create minimal gt table
+param_table %>% 
+  gt() %>%
+  fmt_number(decimals = 3) %>%
+  cols_label(
+    Parameter = "Parameter",
+    Mean = "Posterior Mean", 
+    SD = "Std. Dev."
+  ) %>%
+  tab_header(
+    title = "Bayesian Kriging Parameters",
+    subtitle = "Constant Mean with Exponential Covariance"
+  ) %>%
+  tab_options(
+    table.width = pct(60),
+    column_labels.font.weight = "bold"
+  ) %>%
+  tab_footnote(
+    footnote = "Nugget calculated as tausq = tausq.rel × sigmasq",
+    locations = cells_body(columns = Parameter, rows = 4)
+  )
+```
+
+## Comments
+
+The table (@tbl-table7) presents Bayesian posterior mean estimates model with a constant mean and exponential covariance structure yielded the following parameter estimates. The intercept ( $\beta_0$ = 15.222 ± 1.451) represents the baseline sea surface temperature across the study area. The spatial dependence structure shows a partial sill ( $\sigma^2$ = 9.209 ± 1.830), indicating substantial spatial variation in SST, with an effective range ( $\phi$ = 3.093 ± 0.894) suggesting correlations persist over moderate distances. The nugget effect ( $\tau^2$ = 0.476 ± 0.099) accounts for measurement error and micro-scale variation, representing about 5% of the total variation (nugget/total sill ratio). The relatively small standard deviations compared to the mean estimates suggest precise parameter estimation. This exponential covariance model suggests smoothly varying SST patterns with moderate spatial continuity across the study region.
+
+```{r,message=FALSE,warning=FALSE,tab.cap='Model Comparison: ML vs Bayesian Approaches',tbl-table8}
+
+library(gt)
+library(dplyr)
+library(tidyr)
+
+# Extract posterior means from Bayesian models
+extract_bayes_means <- function(model) {
+  if ("sample" %in% names(model$posterior)) {
+    samples <- model$posterior$sample
+    list(
+      `Intercept(beta0)` = if ("beta" %in% names(samples)) mean(samples$beta) else 
+                        if ("beta0" %in% names(samples)) mean(samples$beta0) else NA_real_,
+      `Sill` = mean(samples$sigmasq),
+      `Range` = mean(samples$phi),
+      `Nugget` = mean(samples$tausq.rel) * mean(samples$sigmasq)
+    )
+  } else {
+    list(
+      `Intercept(beta0)` = NA_real_,
+      `Sill` = NA_real_, `Range` = NA_real_, `Nugget` = NA_real_
+    )
+  }
+}
+
+# Extract means from both models
+cte_means <- extract_bayes_means(bayes_cte_exp)
+#trend_means <- extract_bayes_means(bayes_1st_mat32)
+
+# Create comparison data frame with proper parameter names
+param_names <- c("Intercept (beta0)", "Nugget(tausq)", 
+                 "Sill(sigmasq)", "Range(phi)")
+
+comparison_df <- data.frame(
+  Parameter = factor(param_names, levels = param_names),
+  ML_Constant = c(14.703, 0.200, 28.418, 7.259),
+  Bayes_Constant = c(
+    cte_means$`Intercept(beta0)`,
+    cte_means$`Nugget`, cte_means$`Sill`, cte_means$`Range`
+  )
+)
+
+# Create and format the gt table
+gt_table <- comparison_df %>%
+  pivot_longer(
+    cols = -Parameter,
+    names_to = c("Method", "Model"),
+    names_sep = "_",
+    values_to = "Value"
+  ) %>%
+  pivot_wider(
+    names_from = "Method",
+    values_from = "Value"
+  ) %>%
+  arrange(Model, Parameter) %>%
+  gt(groupname_col = "Model") %>%
+  fmt_number(
+    columns = c("ML", "Bayes"),
+    decimals = 3
+  ) %>%
+  sub_missing(
+    columns = everything(),
+    missing_text = "—"
+  ) %>%
+  tab_header(
+    title = "Model Comparison: ML vs Bayesian Approaches",
+    subtitle = "Parameter Estimates with Mathematical Notation"
+  ) %>%
+  cols_label(
+    Parameter = "Parameter",
+    ML = "Maximum Likelihood",
+    Bayes = "Bayesian Posterior Mean"
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_style(
+    style = cell_text(style = "italic"),
+    locations = cells_row_groups()
+  ) %>%
+  tab_options(
+    table.width = "100%",
+    column_labels.font.size = 14,
+    table.font.size = 12,
+    column_labels.padding = px(10)
+  ) %>%
+  tab_footnote(
+    footnote = "Nugget calculated as tausq = tausq.rel × sigmasq",
+    locations = cells_body(columns = "Bayes", rows = Parameter == "Nugget")
+  ) %>%
+  tab_source_note(
+    source_note = "Source: Sea Surface Temperature (SST) dataset \n in the
+ Kuroshio current off Japan from the \n first two days of January 1996"
+  )
+
+# Display the table
+gt_table
+```
+
+## Comments
+
+The table ( @tbl-table8) compares parameter estimates between the Maximum Likelihood (ML) and Bayesian approaches under a constant mean Gaussian Process model. The Bayesian posterior mean for the intercept ($\beta_0$ = 15.222) is slightly higher than the ML estimate (14.703), indicating a similar central tendency. However, the Bayesian approach estimates a much larger nugget ( $\tau^2$= 0.476 vs. 0.200), suggesting it captures more measurement noise or microscale variation. In contrast, the Bayesian sill ($\sigma^2$ = 9.209) and range ($phi$ = 3.093) are notably smaller than their ML counterparts (28.418 and 7.259), implying the Bayesian model attributes less variation to spatial structure and assumes a shorter spatial correlation length. Overall, the Bayesian model results in a smoother, more locally dependent spatial process with greater uncertainty at small scales. Based on the parameter estimates, the Maximum Likelihood (ML) model attributes more variation to spatial structure (higher sill and longer range), while the Bayesian model accounts for greater measurement error (higher nugget) and assumes a shorter spatial correlation range. Although both models estimate similar intercepts, the ML model suggests a stronger and more extensive spatial dependence. However, the Bayesian approach offers a more conservative, locally adaptive view of spatial variation by balancing nugget and sill more distinctly.
+
+## Bayesian approach Prediction
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Bayesian Approach Prediction',fig-plot21}
+# Predict using Bayesian approach with cte trend
+library(viridis)
+par(mfrow=c(2,2),mar=c(4,4,2,4))
+
+# cte trend
+
+image(bayes_cte_exp,col=viridis::viridis(100),zlim=c(-6,6),
+      main="Mean: Exp, Cte trend",xlab= 'Longitude',ylab='Latitude')
+
+image(bayes_cte_exp,val="variance",main="Variance: Exp, Cte trend",
+      xlab= 'Longitude',ylab='Latitude')
+
+image(bayes_cte_exp,val="simulation",number.col=1,col=viridis::viridis(100),
+      zlim=c(-6,6),main="Simulation1: Exp, Cte trend",
+      xlab= 'Longitude',ylab='Latitude')
+
+image(bayes_cte_exp,val="simulation",number.col=2,col=viridis::viridis(100),
+      zlim=c(-6,6), main="Simulation2: Exp, Cte trend",
+      xlab= 'Longitude',ylab='Latitude')
+```
+
+## Comments
+
+The Bayesian approach prediction plots ( @fig-plot21) for the Exponential model with a constant trend (Cte trend) applied to the Sea Surface Temperature (SST) dataset reveal key insights across a spatial region defined by longitude (140 to 150) and latitude (30 to 38). The predictive mean plot shows a uniform yellow colour, indicating a constant SST mean across the region, consistent with the Cte trend assumption, with observed data points (yellow squares) sparsely distributed, suggesting limited data coverage. The predictive variance plot displays a heatmap with high variance (red) across most of the region, indicating significant uncertainty in SST predictions, particularly where data points are absent, as the model lacks sufficient observations to reduce uncertainty. Two simulation plots (Simulation 1 and Simulation 2) present possible SST realisations, showing sparse yellow-green points that vary slightly in placement but align with the observed data locations, reflecting the model’s attempt to simulate SST values under the constant trend assumption. Overall, the Bayesian approach highlights a uniform SST mean prediction with high uncertainty due to sparse data, and the simulations provide plausible SST scenarios consistent with the limited observations.
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Bayesian Posterior distribution',fig-plot22}
+
+par(mfrow = c(2, 2),mar=c(4,4,2,4),oma=c(0,0,2,0))  # Set up 2x2 plot grid
+
+# 1. Range (ϕ) posterior
+if(!is.null(bayes_cte_exp$posterior$sample$phi)) {
+  hist(bayes_cte_exp$posterior$sample$phi, 
+       main = "Posterior: Range (ϕ)",
+       xlab = "Range", col = "lightblue", freq = FALSE)
+  lines(density(bayes_cte_exp$posterior$sample$phi), 
+        col = "blue", lwd = 2)
+}
+
+# 2. Sill (σ²) posterior
+if(!is.null(bayes_cte_exp$posterior$sample$sigmasq)) {
+  hist(bayes_cte_exp$posterior$sample$sigmasq, 
+       main = "Posterior: Sill (σ²)",
+       xlab = "Partial Sill", col = "lightgreen", freq = FALSE)
+  lines(density(bayes_cte_exp$posterior$sample$sigmasq), 
+        col = "darkgreen", lwd = 2)
+}
+
+# 3. Nugget (τ²) posterior
+if(!is.null(bayes_cte_exp$posterior$sample$tausq.rel)) {
+  nugget <- bayes_cte_exp$posterior$sample$tausq.rel * 
+            mean(bayes_cte_exp$posterior$sample$sigmasq)
+  hist(nugget,
+       main = "Posterior: Nugget (τ²)",
+       xlab = "Nugget", col = "pink", freq = FALSE)
+  lines(density(nugget), 
+        col = "red", lwd = 2)
+}
+
+# 4. Intercept (β₀) posterior
+if(!is.null(bayes_cte_exp$posterior$sample$beta)) {
+  hist(bayes_cte_exp$posterior$sample$beta,
+       main = "Posterior: Intercept (beta) ",
+       xlab = "Intercept", col = "lightyellow", freq = FALSE)
+  lines(density(bayes_cte_exp$posterior$sample$beta), 
+        col = "orange", lwd = 2)
+}
+```
+
+## Comments
+
+The plots (@fig-plot22) display the posterior distributions of four parameters Range (phi), Partial Sill (sigmasq), Nugget (tausq), and Intercept (beta) from a Bayesian kriging model with a constant trend. The posterior for phi (Range) peaks around 2 to 4, indicating the spatial range of correlation is relatively short, with a density dropping sharply beyond 6, suggesting the model is confident in a smaller range. The Partial Sill (sigmasq) posterior centers around 10 to 12, with a spread from 6 to 18, reflecting moderate uncertainty in the variance of the spatial process, but a clear preference for values around 10. The Nugget (tausq) posterior is heavily skewed, peaking sharply near 0.5 and dropping quickly, with most density below 0.7, indicating a small nugget effect and suggesting low measurement error or micro-scale variability. Finally, the Intercept (beta) posterior is centered around 16, with a range from 10 to 20, showing a normal-like distribution and moderate uncertainty in the mean level of the process. Overall, the model provides well-defined estimates for these parameters, with the Nugget being the most constrained and the Intercept showing the widest uncertainty.
+
+## (f) Prediction of SST at the 5 locations you removed
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Prediction of 5 locations using Kriging Approach',fig-plot23,cache=TRUE}
+
+library(geoR)
+library(dplyr)
+library(gt)
+
+# convert data to geoadata format
+sst_test.geo <- as.geodata(removed_points, coords.col = c("lon", "lat"), 
+                          data.col = "sst")
+
+# Variogram with first-order trend
+vario.test.trend1 <- variog(sst_test.geo, option = 'bin', trend = '1st',
+                           max.dist = 10)
+
+# Fit variogram model
+vari_pred <- variofit(vario.test.trend1, cov.model = "matern",
+                     nugget = 1.5, kappa = 3/2, fix.nugget = TRUE,
+                     ini.cov.pars = c(60, 5))
+
+
+# Create a prediction grid
+# Get bounding box from your sample coordinates
+x.range.test <- range(sst_test.geo$coords[, 1])  # Longitude
+y.range.test <- range(sst_test.geo$coords[, 2])  # Latitude
+
+# Generate a 100x100 prediction grid
+grid.pred <- expand.grid(
+  lon = seq(x.range.test[1], x.range.test[2], length.out = 100),
+  lat = seq(y.range.test[1], y.range.test[2], length.out = 100)
+)
+
+# Predict using kriging with first-order trend
+krige_pred <- krige.conv(sst_test.geo, 
+                        locations = as.matrix(grid.pred),
+                        krige = krige.control(trend.d = "1st",
+                                             obj.model = vari_pred))
+
+library(cowplot)
+# Set up a 1x2 plotting grid with adjusted margins
+par(mfrow=c(1,2), mar=c(5,4,3,2), oma=c(0,0,3,0))
+
+# 1. Kriging Predictive Mean
+image(krige_pred,
+      col = viridis::viridis(100),
+      zlim = c(0, max(krige_pred$predict, na.rm = TRUE)),
+      coords.data = sst_test.geo$coords,
+      main = 'Mean',
+      xlab = 'Longitude', ylab = 'Latitude')
+mtext("Kriging Prediction Results \n for the 5 locations",
+      outer=TRUE, cex=1.2)
+```
+
+## 
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Prediction of 5 locations using Kriging Approach',fig-plot24,cache=TRUE}
+
+# 2. Kriging Predictive Variance
+image(krige_pred,
+      values = krige_pred$krige.var,
+      col = heat.colors(100)[100:1],
+      zlim = c(0, max(krige_pred$krige.var, na.rm = TRUE)),
+      coords.data = sst_test.geo$coords,
+      main = 'Variance',
+      xlab = 'Longitude', ylab = 'Latitude')
+
+# Optional: Add an overall title for the page (if desired)
+mtext("Kriging Prediction Results \n for the 5 locations", 
+      outer=TRUE, cex=1.2)
+```
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Prediction of 5 locations using Gaussian Process with MLE Approach',fig-plot25}
+
+# Predict using GP with cte trend
+gp_ml.pred <- likfit(sst_test.geo, ini.cov.pars = c(60, 5), 
+                    cov.model = "exponential", trend = 'cte',
+                    fix.nugget = TRUE, nugget = 0.2)
+
+gp_pred <- krige.conv(sst_test.geo, 
+                        locations = as.matrix(grid.pred),
+                        krige = krige.control(trend.d = "cte",
+                                             obj.model = gp_ml.pred))
+
+
+par(mfrow=c(1,2))
+
+# 1. Gaussian Process Predictive Mean
+image(gp_pred,
+      col = viridis::viridis(100),
+      zlim = c(0, max(gp_pred$predict, na.rm = TRUE)),
+      coords.data = sst_test.geo$coords,
+      main = 'Gaussian Process \n Predictive Mean',
+      xlab = 'Longitude', ylab = 'Latitude',
+      x.leg = c(700, 900), y.leg = c(20, 70))
+```
+
+## 
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Prediction of 5 locations using Gaussian Process with MLE Approach',fig-plot26}
+
+# 2. Gaussian process Variance
+image(gp_pred,
+      values = gp_pred$krige.var,
+      col = heat.colors(100)[100:1],
+      zlim = c(0, max(gp_pred$krige.var, na.rm = TRUE)),
+      coords.data = sst_test.geo$coords,
+      main = 'Gaussian Process \n Predictive Variance',
+      xlab = 'Longitude', ylab = 'Latitude',
+      x.leg = c(700, 900), y.leg = c(20, 70))
+```
+
+```{r,message=FALSE,warning=FALSE,results='hide',cache=TRUE}
+
+# Create a prediction grid
+# Get bounding box from your sample coordinates
+x.range.test <- range(sst_test.geo$coords[, 1])  # Longitude
+y.range.test <- range(sst_test.geo$coords[, 2])  # Latitude
+
+# Generate a 100x100 prediction grid
+grid.pred <- expand.grid(
+  lon = seq(x.range.test[1], x.range.test[2], length.out = 30),
+  lat = seq(y.range.test[1], y.range.test[2], length.out = 30)
+)
+
+# Bayesian prediction with Cte trend
+library(geoR)
+bayes_exp.cte_pred <- krige.bayes(
+  geodata = sst_test.geo,
+  locations = grid.pred,
+  model = model.control(
+    trend.d = "cte",
+    trend.l = "cte",
+    cov.model = "exponential"
+  ),
+  prior = prior.control(
+    beta.prior = "flat",
+    sigmasq.prior = "reciprocal",
+    sigmasq = c(1, 60),
+    phi.prior = "uniform",
+    phi.discrete = seq(0.5, 5, length.out = 50),
+    tausq.rel.prior = "uniform",
+    tausq.rel.discrete = seq(0.01, 0.2, length.out = 11)
+  ),
+  output = output.control(moments = TRUE, n.predictive = 1000)
+)
+```
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Prediction of 5 locations using Bayesian Approach',fig-plot27}
+############## Prediction of SST using Bayesian Approach ###################
+
+library(viridis)
+par(mfrow=c(2,2),mar=c(4,4,2,4))
+
+# 1st trend
+
+image(bayes_exp.cte_pred,col=viridis::viridis(100),
+      zlim=c(-6,6),main="Bayesian Predictive \n Mean",
+      xlab= 'Longitude',ylab='Latitude')
+
+image(bayes_exp.cte_pred,val="variance",main="Bayesian Predictive \n Variance",
+      xlab= 'Longitude',ylab='Latitude')
+
+image(bayes_exp.cte_pred,val="simulation",number.col=1,
+      col=viridis::viridis(100),
+      zlim=c(-6,6),main="Simulation1: \n Exp, Cte trend",
+      xlab= 'Longitude',ylab='Latitude')
+
+image(bayes_exp.cte_pred,val="simulation",number.col=2,
+      col=viridis::viridis(100),zlim=c(-6,6),
+ main="Simulation2: \n Exp, Cte trend",
+ xlab= 'Longitude',ylab='Latitude')
+```
+
+## Comments
+
+The Kriging Prediction Results for the 5 locations plot (@fig-plot23, @fig-plot24) shows the predictive mean and variance using a standard kriging model. The mean plot displays a smooth gradient from yellow (lower values) to purple (higher values, around 20), with higher predictions in the northwest (Latitude \~38, Longitude \~140), decreasing towards the southeast. The variance plot, uniformly orange, indicates a constant predictive variance across the region, suggesting the model assumes consistent uncertainty (around 2-3) regardless of location, which might reflect limited data (5 points) or a simplistic model structure, potentially underestimating spatial variability in uncertainty.
+
+The Gaussian Process prediction plots (@fig-plot25, @fig-plot26) also show predictive mean and variance but with a different approach. The mean plot mirrors the kriging pattern, with higher values (purple, \~20) in the northwest and lower values (yellow, \~5) in the southeast, aligning with the data points. However, the variance plot reveals more spatial structure, with higher uncertainty (red, \~5) near the data points (e.g., Latitude 32-34, Longitude 144-148) and lower variance (yellow, \~1) in areas farther away, indicating the Gaussian Process model better captures spatial variation in uncertainty, leveraging its flexible covariance structure.
+
+The Bayesian Predictive plots (@fig-plot27) using an Exponential covariance with constant trend show similar trends in the mean, with higher predictions in the northwest (purple, \~20) and lower in the southeast (yellow, \~5), consistent with the other models. The variance plot, however, shows significant spatial variation, with high uncertainty (red, \~5) near data points and lower uncertainty (yellow, \~1) in interpolated areas, similar to the Gaussian Process but with slightly more pronounced contrasts, reflecting the Bayesian model's ability to incorporate prior uncertainty and adapt to sparse data.
+
+The Simulation 1 plot (Exp, Cte trend) represents a simulated predictive mean using an Exponential covariance model with a constant trend. The plot shows a pixelated pattern with values ranging from blue (\~5) to yellow (\~20), but the distribution appears less smooth, with abrupt transitions and scattered high/low values, suggesting the simulation struggles to capture the underlying spatial trend accurately, likely due to overfitting to the sparse 5-point data or poor parameter estimation. While the Simulation 2 (Exp, Cte trend) plot, another simulation with the same model, also shows a pixelated pattern but with a slightly different distribution of values. It ranges from blue (\~5) to yellow (\~20), with clusters of high and low predictions that don't align smoothly with the spatial gradient seen in the other models, indicating inconsistent predictions and potential issues with the simulation's ability to generalise from limited data.
+
+Comparing the models, the Kriging model provides a smooth mean prediction but fails to capture spatial variation in uncertainty, making it less reliable for sparse data. The Gaussian Process and Bayesian models both excel in capturing spatial trends in both mean and variance, with the Bayesian model showing slightly more defined variance patterns, likely due to its incorporation of prior distributions. The simulation models (Simulation 1 and 2) perform poorly, producing inconsistent and pixelated predictions that fail to reflect the underlying spatial structure. In terms of prediction, the Bayesian model is the best, as it balances accurate mean predictions with spatially adaptive variance, effectively handling the uncertainty inherent in the sparse 5-point dataset.
+
+# Question 2: Atlantic Overturning Circulation
+
+## (a) Plot the data and comment on any patterns/trends observed
+
+```{r}
+# load the dataset
+amoc <- load("D:/Bureau/University of Exeter UK/Modules/Data Science and Statistical Modelling in Space and Time/Coursework/MOC.Rdata")
+
+#head(MOCmean)
+
+
+```
+
+```{r,message=FALSE,warning=FALSE,fig.cap='AMOC Strength plot Jan 2017-Feb 2023',fig-plot28}
+# Load required packages
+library(ggfortify)
+library(ggplot2)
+library(zoo)
+
+# Create the time series
+moc.ts <- ts(MOCmean, start = c(2017, 1),end = c(2023,2), frequency = 12)
+
+# Convert to zoo with Date index
+time_dates <- as.Date(as.yearmon(time(moc.ts)))
+moc.zoo <- zoo(coredata(moc.ts), order.by = time_dates)
+
+# Plot with autoplot and scale_x_date
+p <- autoplot(moc.zoo, ts.color = "blue", ts.size = 1) +
+  labs(title = "Atlantic Meridional Overturning Circulation (AMOC) \n Jan 2017-Feb 2023",
+       y = "Strength Circulation",
+       x = "Year") +
+  scale_x_date(
+    breaks = "1 year",  # Major breaks every year
+    minor_breaks = "3 months",  # Minor breaks every 3 months
+    limits = as.Date(c("2017-01-01", "2023-02-01")),  # Jan 2017 to Feb 2023
+    date_labels = "%Y",  # Label as years
+    expand = c(0, 0)
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_line(color = "gray", linetype = "dotted"),
+    panel.grid.minor = element_line(color = "gray", linetype = "dotted")
+  )
+
+# Display the plot
+print(p)
+```
+
+### Comments
+
+The plot of AMOC strength at 26°N from January 2017 to February 2023 shows a relatively stable mean strength of around 15–16 , with no clear long-term trend of strengthening or weakening over this period (@fig-plot28). A pronounced seasonal cycle is evident, with annual peaks reaching up to 20–24 (likely in winter months, e.g., December–February) and troughs dipping to 8–12 (likely in summer months, e.g., June–August), reflecting seasonal variations in atmospheric or oceanic forcing. The series exhibits significant month-to-month variability, with fluctuations of 5–10 within a year, and notable anomalies, such as a sharp dip below 10 in mid-2020 followed by a recovery to above 20, possibly due to an extreme climatic event. The amplitude of fluctuations varies over time, with periods like 2019 showing smaller swings and 2020–2022 showing larger ones, suggesting potential non-stationarity in variance, which should be considered in modelling and forecasting efforts
+
+## (b) ARMA and ARIMA models fitting
+
+```{r,message=FALSE,warning=FALSE}
+# Exclusion of the Last 8 Months
+
+# Exclude the last 8 months (Jul 2022 to Feb 2023)
+moc.ts.train <- window(moc.ts, start = c(2017, 1), end = c(2022, 6))
+
+```
+
+### Comments
+
+From the earlier plot (which included the full dataset), we observed that there is no clear long-term trend in the mean (it fluctuates around 15–16), a strong seasonal pattern with annual cycles and the variance appears to vary slightly over time (e.g., larger swings in 2020 compared to 2019). In order to fit the ARMA or ARIMA models without using auto.arima function, we ill plot the Autocorrelation Function (ACF) and Partial Autocorrelation Function (PACF) to determine order of the model's paramaters.
+
+```{r,message=FALSE,warning=FALSE,tab.cap='Augmented Dickey-Fuller Test for Quarterly AMOC Strength',tbl-table9}
+library(tseries)
+# If the p-value < 0.05, the series is stationary 
+# (reject the null hypothesis of a unit root).
+# If the p-value > 0.05, the series is non-stationary, 
+# and differencing may be needed (ARIMA).
+
+adf.test(moc.ts.train)
+
+
+# Load the gt library
+library(gt)
+
+# Create data frame for ADF test results
+adf_data <- data.frame(
+  Parameter = c("Dickey-Fuller", "Lag order", "p-value"),
+  Value = c(-4.1823, 4, 0.01)
+)
+
+# Create the table with gt
+adf_table <- gt(data = adf_data, rowname_col = "Parameter") %>%
+  tab_header(
+    title = "Augmented Dickey-Fuller Test for Quarterly AMOC Strength"
+  ) %>%
+  cols_label(
+    Value = "Value"
+  ) %>%
+  fmt_number(
+    columns = "Value",
+    rows = c(1, 3),  # Dickey-Fuller and p-value
+    decimals = 3
+  ) %>%
+  fmt_number(
+    columns = "Value",
+    rows = 2,  # Lag order
+    decimals = 0
+  ) %>%
+  tab_source_note(
+    source_note = "Alternative Hypothesis: Stationary"
+  )
+
+# Display the table
+adf_table
+```
+
+### Comments
+
+Before proceeding to model fitting, we performed the Augmented Dickey-Fuller Test (ADF) to check the stationarity of the data. The p-value 0.01 from the Augmented Dickey-Fuller Test for Quarterly AMOC Strength is less than 0.05, so we reject the null hypothesis of a unit root (@tbl-table9). This indicates that the series is stationary without differencing. Since the series is stationary, we can then fit ARMAs model directly without differencing ($𝑑$ = 0). However, we’ll also explore ARIMA models with $𝑑$ = 1 to compare and see if differencing might still improve the fit by addressing any residual trends or variance issues.
+
+```{r,fig.cap='ACF and PACF plots of AMOC Strength',fig-plot29}
+# Autocorrelation Function (ACF) and Partial Autocorrelation Function (PACF)
+par(mfrow=c(1,2),mar=c(4,4,4,4))
+acf(moc.ts.train, main = "ACF of AMOC Strength")
+pacf(moc.ts.train, main = "PACF of AMOC Strength")
+```
+
+### Comments
+
+The ACF and PACF plots (@fig-plot29) of the AMOC strength data (from January 2017 to June 2022, excluding the last 8 months) provide insights into the time series structure for fitting ARMA and ARIMA models without seasonal components. The ACF plot shows a significant spike at lag 1 (around 0.3), followed by smaller, mostly insignificant spikes at higher lags, with some periodic patterns at lags around 1.0 (approximately 12 months), indicating the presence of seasonality despite the instruction to ignore seasonal components. This suggests an MA(1) component might be appropriate due to the sharp drop after lag 1 (about 0.2). The PACF plot exhibits a significant spike at lag 1 (around 0.2), suggesting a possible AR(1) component, as the PACF cuts off after lag 1. The slow decay in the ACF and the significant lags in the PACF suggest the series may be non-stationary, likely requiring differencing for an ARIMA model, while the patterns at lag 1 in both plots support testing ARMA(1,1) or ARIMA(1,1,1) models to capture the short-term dependencies in the data.
+
+### ARMA Models
+
+#### ARMA(1,0)
+
+```{r,message=FALSE,warning=FALSE}
+# ARMA(1,0) = AR(1)
+arma10 <- arima(moc.ts.train, order = c(1, 0, 0),seasonal = c(0,0,0))
+#summary(arma10)
+
+```
+
+```{r,tab.cap='ARMA(1,0) Model Summary',tbl-table10,message=FALSE,warning=FALSE}
+library(gt)
+
+# Create a data frame with the model summary information
+arma10_summary <- data.frame(
+  Parameter = c("ar1", "Intercept", "sigma^2", "AIC", "Log Likelihood"),
+  Value = c(arma10$coef[1], arma10$coef[2], arma10$sigma2, arma10$aic, arma10$loglik),
+  Std.Error = c(sqrt(arma10$var.coef[1,1]), sqrt(arma10$var.coef[2,2]), NA, NA, NA)
+)
+
+# Create the gt table
+arma10_summary %>% 
+  gt() %>% 
+  tab_header(
+    title = "ARMA(1,0) Model Summary",
+    subtitle = "Summary of the fitted ARMA(1,0) model"
+  ) %>% 
+  fmt_number(
+    columns = c("Value", "Std.Error"),
+    decimals = 3
+  ) %>% 
+  cols_label(
+    Parameter = "Parameter",
+    Value = "Estimate",
+    Std.Error = "Std. Error"
+  ) %>% 
+  fmt_missing(
+    columns = "Std.Error",  # Fixed: column name as string
+    missing_text = "-"
+  ) %>% 
+  tab_footnote(
+    footnote = "Square root of the variance of the white noise",
+    locations = cells_body(columns = "Std.Error", rows = 3)
+  ) %>% 
+  tab_footnote(
+    footnote = "Akaike Information Criterion",
+    locations = cells_body(columns = "Parameter", rows = 4)
+  )
+```
+
+### Comments
+
+The summary table for the ARMA(1,0) model reveals key model characteristics (@tbl-table10). The model shows an AR(1) with coefficient (ar1) of 0.154 and a standard error of 0.121. This indicates a modest positive autocorrelation that is not statistically significant (due to the relatively large standard error), and an intercept of 16.772 (standard error 0.416), suggesting a mean AMOC strength of around 16.77, consistent with the data’s average. The model fit statistics show a $\sigma^2$ of 8.21, log likelihood of -163.14, and AIC of 332.28, providing a baseline for model comparison, though the presence of seasonality (not modelled) likely impacts these metrics.
+
+```{r,fig.cap='Diagnostics plots',fig-plot30,message=FALSE,warning=FALSE}
+# Residuals checking
+par(mfrow=c(1,2),mar=c(4,4,3.5,2))
+tsdiag(arma10)  
+```
+
+### Comments
+
+The diagnostic plots (@fig-plot30) for the ARMA(1,0) model provide insights into the model’s adequacy. The "Standardized Residuals" plot shows residuals fluctuating around zero with no clear trend or pattern over time, suggesting the model captures the mean structure well, though some residuals exceed ±2, indicating potential outliers or unmodelled variability. The "ACF of Residuals" plot reveals significant spikes at lags around 0.5, 1.0, and 1.5 (approximately 6, 12, and 18 months), reflecting the unmodelled seasonal pattern (annual cycle) in the data, as the problem specified no seasonal components. This indicates that the ARMA(1,0) model fails to capture the seasonal autocorrelation. The "p-values for Ljung-Box statistic" plot shows p-values consistently below 0.05 for lags 1 to 10, rejecting the null hypothesis of no autocorrelation in the residuals, further confirming the presence of none modelled structure, likely due to seasonality. Overall, while the ARMA(1,0) model fits the mean reasonably well, its inability to account for the seasonal pattern suggests it is not fully adequate, and a model incorporating seasonality (e.g., SARIMA) would likely perform better.
+
+#### ARMA(0,1)
+
+```{r,message=FALSE,warning=FALSE}
+arma01 <- arima(moc.ts.train, order = c(0, 0, 1),seasonal = c(0,0,0))
+
+#summary(arma01)
+
+```
+
+```{r,results='asis',message=FALSE,warning=FALSE,tab.cap='ARMA(0,1) Model Summary',tbl-table11}
+
+# Create a data frame with the model summary information
+arma01_summary <- data.frame(
+  Parameter = c("ar1", "Intercept", "sigma^2", "AIC", "Log Likelihood"),
+  Value = c(arma01$coef[1], arma01$coef[2], arma01$sigma2, arma01$aic, arma01$loglik),
+  Std.Error = c(sqrt(arma01$var.coef[1,1]), sqrt(arma01$var.coef[2,2]), NA, NA, NA)
+)
+
+# Create the gt table
+arma01_summary %>% 
+  gt() %>% 
+  tab_header(
+    title = "ARMA(0,1) Model Summary",
+    subtitle = "Summary of the fitted ARMA(0,1) model"
+  ) %>% 
+  fmt_number(
+    columns = c("Value", "Std.Error"),
+    decimals = 3
+  ) %>% 
+  cols_label(
+    Parameter = "Parameter",
+    Value = "Estimate",
+    Std.Error = "Std. Error"
+  ) %>% 
+  fmt_missing(
+    columns = "Std.Error",  # Fixed: column name as string
+    missing_text = "-"
+  ) %>% 
+  tab_footnote(
+    footnote = "Square root of the variance of the white noise",
+    locations = cells_body(columns = "Std.Error", rows = 3)
+  ) %>% 
+  tab_footnote(
+    footnote = "Akaike Information Criterion",
+    locations = cells_body(columns = "Parameter", rows = 4)
+  )
+```
+
+### Comments
+
+The summary table for the ARMA(0,1) model provides key insights into its performance (@tbl-table11). The model coefficients shows an MA(1) coefficient (ma1) of 0.141 with a standard error of 0.117, indicating a small, statistically insignificant short-term error correction (due to the large standard error relative to the estimate), and an intercept of 16.771 (standard error 0.402), suggesting a mean AMOC strength of approximately 16.77, aligning with the data’s average. Model fit statistics show a $\sigma^2$ of 8.229, log likelihood of -163.214, and AIC of 332.428, which are slightly worse than the ARMA(1,0) model (AIC 332.28), indicating that this model may not capture the data’s dynamics as effectively, particularly given the unmodelled seasonality.
+
+```{r,fig.cap='Diagnostic plots', fig-plot31,message=FALSE,warning=FALSE}
+# Residuals checking
+par(mfrow=c(1,2),mar=c(4,4,3.5,4))
+tsdiag(arma01)
+```
+
+### Comments
+
+The diagnostic plots (@fig-plot31) for the ARMA(0,1) model reveal its performance and limitations. The "Standardized Residuals" plot shows residuals fluctuating around zero with no clear trend over time, indicating the model captures the mean structure adequately, though occasional residuals exceed ±2, suggesting potential outliers or unmodelled variability. The "ACF of Residuals" plot displays significant spikes at lags around 0.5, 1.0, and 1.5 (approximately 6, 12, and 18 months), highlighting a persistent seasonal pattern (annual cycle) that the model fails to capture, as it lacks seasonal components. The "p-values for Ljung-Box statistic" plot shows p-values consistently below 0.05 for lags 1 to 10, rejecting the null hypothesis of no autocorrelation in the residuals, which confirms the presence of unmodelled structure, primarily due to seasonality. Overall, while the ARMA(0,1) model fits the mean reasonably well, its inability to account for the seasonal autocorrelation indicates it is not fully adequate, suggesting a model with seasonal components (e.g., SARIMA) would be more appropriate.
+
+### ARMA(1,1)
+
+```{r,message=FALSE,warning=FALSE}
+# ARMA(1,1)
+arma11 <- arima(moc.ts.train, order = c(1, 0, 1),seasonal = c(0,0,0))
+#summary(arma11)
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='ARMA(1,1) Model Summary',tbl-table12}
+library(gt)
+
+# Create a data frame with the model summary information
+arma11_summary <- data.frame(
+  Parameter = c("ar1", "ma1", "Intercept", "sigma^2", "AIC", "Log Likelihood"),
+  Value = c(arma11$coef["ar1"], arma11$coef["ma1"], arma11$coef["intercept"], 
+            arma11$sigma2, arma11$aic, arma11$loglik),
+  Std.Error = c(sqrt(arma11$var.coef["ar1", "ar1"]), 
+               sqrt(arma11$var.coef["ma1", "ma1"]), 
+               sqrt(arma11$var.coef["intercept", "intercept"]), 
+               NA, NA, NA)
+)
+
+# Create the gt table
+arma11_summary %>% 
+  gt() %>% 
+  tab_header(
+    title = "ARMA(1,1) Model Summary",
+    subtitle = "Summary of the fitted ARMA(1,1) model"
+  ) %>% 
+  fmt_number(
+    columns = c("Value", "Std.Error"),
+    decimals = 3
+  ) %>% 
+  cols_label(
+    Parameter = "Parameter",
+    Value = "Estimate",
+    Std.Error = "Std. Error"
+  ) %>% 
+  fmt_missing(
+    columns = "Std.Error",
+    missing_text = "-"
+  ) %>% 
+  tab_footnote(
+    footnote = "Square root of the variance of the white noise",
+    locations = cells_body(columns = "Std.Error", rows = 4)
+  ) %>% 
+  tab_footnote(
+    footnote = "Akaike Information Criterion",
+    locations = cells_body(columns = "Parameter", rows = 5)
+  ) %>% 
+  tab_options(
+    table.font.size = px(14),
+    heading.title.font.size = px(18)
+  )
+```
+
+### Comments
+
+The summary table (@tbl-table12) for the ARMA(1,1) model shows an AR(1) coefficient (ar1) of 0.812 (standard error 0.545) and an MA(1) coefficient (ma1) of -0.700 (standard error 0.657), both statistically insignificant due to large standard errors, suggesting weak autoregressive and moving average effects, while the intercept of 16.829 (standard error 0.579) indicates a mean AMOC strength of approximately 16.83. However, the model fit statistics ( $\sigma^2$ = 8.132, log likelihood = -162.85, AIC = 333.7) are slightly worse than those of the ARMA(1,0) (AIC =332.28) and ARMA(0,1) (AIC 332.43) models, suggesting that the additional complexity of ARMA(1,1) does not improve the fit, especially given the not modelled seasonality in the data.
+
+```{r,fig.cap='Diagnostic plots', fig-plot32,message=FALSE,warning=FALSE}
+# residuals checking
+par(mfrow=c(1,2),mar=c(4,4,3.5,4))
+tsdiag(arma11)
+```
+
+### Comments
+
+The diagnostic plots ( @fig-plot32) for the ARMA(1,1) model highlight both its strengths and shortcomings. The Standardized Residuals plot shows that residuals fluctuate around zero without a clear trend, indicating the model effectively captures the mean. However, a few residuals lie beyond ±2, suggesting possible outliers or unexplained variability. The ACF of Residuals reveals prominent spikes at lags around 0.5, 1.0, and 1.5 years (roughly 6, 12, and 18 months), indicating a seasonal pattern specifically an annual cycle that the model does not capture, likely due to the exclusion of seasonal terms as specified in the task. The Ljung-Box p-values remain below 0.05 across lags 1 to 10, leading to rejection of the hypothesis of no autocorrelation and pointing to residual autocorrelation, primarily from seasonality. In summary, the ARMA(1,1) model sufficiently captures the overall mean behaviour of the series, but its failure to model the seasonal autocorrelation suggests it is incomplete. A more appropriate model would include seasonal elements, such as a SARIMA model, to better reflect the underlying structure.
+
+### ARIMA Models
+
+#### Differencing plot
+
+```{r,fig.cap='ACF/PACF of First Difference plots', fig-plot33,message=FALSE,warning=FALSE}
+moc.ts.diff <- diff(moc.ts.train, lag = 1)
+par(mfrow=c(1,2),mar=c(4,4,3,2))
+acf(moc.ts.diff, main = "ACF of First Difference")
+pacf(moc.ts.diff, main = "PACF of First Difference")
+
+```
+
+### Comments
+
+The ACF and PACF plots of the first-differenced AMOC strength data (from January 2017 to June 2022) offer valuable insights for selecting an appropriate ARIMA model without seasonal terms (@fig-plot33). The ACF of the First Difference plot shows a pronounced negative spike at lag 1 (approximately -0.5), followed by smaller spikes at lags corresponding to 6, 12, and 18 months. While these later spikes fall within the confidence bounds, they hint at a lingering seasonal pattern. The significant lag 1 spike suggests that a moving average component of order 1 (MA(1)) may be appropriate. Similarly, the PACF of the First Difference plot features a notable negative spike at lag 1 (around -0.4), along with minor spikes at seasonal intervals (also within the bounds), implying that an autoregressive component of order 1 (AR(1)) might also be suitable. Taken together, these plots suggest that an ARIMA(1,1,1) model is a reasonable fit for the data after differencing. However, the presence of residual seasonal signals suggests that incorporating seasonal components, such as in a SARIMA model, could further improve model performance in a more detailed analysis.
+
+### ARIMA(1,1,0)
+
+```{r,message=FALSE,warning=FALSE}
+arima110 <- arima(moc.ts.train, order = c(1, 1, 0),seasonal = c(0,0,0))
+#summary(arima110)
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='ARIMA(1,1,0) Model Summary',tbl-table13}
+library(gt)
+
+# Create a data frame with the model summary information
+arima110_summary <- data.frame(
+  Parameter = c("ar1", "sigma^2", "AIC", "Log Likelihood"),
+  Value = c(arima110$coef["ar1"], 
+            arima110$sigma2, 
+            arima110$aic, 
+            arima110$loglik),
+  Std.Error = c(sqrt(arima110$var.coef["ar1", "ar1"]), 
+               NA, NA, NA)
+)
+
+# Create the gt table
+arima110_summary %>% 
+  gt() %>% 
+  tab_header(
+    title = "ARIMA(1,1,0) Model Summary",
+    subtitle = "Summary of the fitted ARIMA(1,1,0) model"
+  ) %>% 
+  fmt_number(
+    columns = c("Value", "Std.Error"),
+    decimals = 3
+  ) %>% 
+  cols_label(
+    Parameter = "Parameter",
+    Value = "Estimate",
+    Std.Error = "Std. Error"
+  ) %>% 
+  fmt_missing(
+    columns = "Std.Error",
+    missing_text = "-"
+  ) %>% 
+  tab_footnote(
+    footnote = "Akaike Information Criterion",
+    locations = cells_body(columns = "Parameter", rows = 3)
+  ) %>% 
+  tab_options(
+    table.font.size = px(14),
+    heading.title.font.size = px(18),
+    heading.subtitle.font.size = px(14)
+  ) %>% 
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  )
+```
+
+### Comments
+
+The summary output of the ARIMA(1,1,0) model sheds light on its effectiveness (@tbl-table13). The Model Coefficients section indicates a statistically significant AR(1) term with a value of -0.452 and a standard error of 0.109, suggesting a negative autoregressive relationship in the differenced series where a positive change in AMOC strength tends to be partially reversed in the following time step. Model fit statistics further highlight its limitations: $\sigma^2$ = 11.34, log-likelihood = -171.27, and AIC = 346.54 all worse than the corresponding values for ARMA(1,0), ARMA(0,1), and ARMA(1,1) models. Overall, these results suggest that ARIMA(1,1,0), despite differencing, does not effectively capture the dynamics of the series likely due to missing seasonal components and the absence of a moving average term.
+
+```{r,fig.cap='Diagnostic plots', fig-plot34,message=FALSE,warning=FALSE}
+# residuals check
+par(mfrow=c(1,2),mar=c(4,4,3.5,4))
+tsdiag(arima110)
+```
+
+### Comments
+
+The diagnostic plots ( @fig-plot34) for the ARIMA(1,1,0) model show that while the model adequately captures the mean structure, it fails to address key patterns in the data. Residuals fluctuate around zero but exceed ±2 at times, indicating possible outliers. The ACF plot reveals seasonal autocorrelation at 6, 12, and 18 month lags, and the Ljung-Box p-values remain below 0.05, confirming significant residual autocorrelation. With a higher AIC (346.54) than ARMA models, the ARIMA(1,1,0) model is not sufficient. A seasonal model, such as SARIMA, would better account for the data's structure.
+
+### ARIMA(0,1,1)
+
+```{r,message=FALSE,warning=FALSE}
+arima011.b <- arima(moc.ts.train, order = c(0, 1, 1),seasonal = c(0,0,0))
+#summary(arima011.b)
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='ARIMA(0,1,1) Model Summary',tbl-table14}
+library(gt)
+
+# Extract model components
+arima011_summary <- data.frame(
+  Parameter = c("ma1", "sigma^2", "AIC", "Log Likelihood"),
+  Value = c(arima011.b$coef["ma1"], arima011.b$sigma2, 
+            arima011.b$aic, arima011.b$loglik),
+  Std.Error = c(sqrt(arima011.b$var.coef["ma1", "ma1"]), NA, NA, NA)
+)
+
+# Create table
+arima011_summary %>% 
+  gt() %>% 
+  tab_header(
+    title = "ARIMA(0,1,1) Model Summary",
+    subtitle = "First-differenced MA(1) model"
+  ) %>% 
+  fmt_number(
+    columns = c("Value", "Std.Error"),
+    decimals = 3  # Strict 3-digit formatting
+  ) %>% 
+  cols_label(
+    Parameter = md("**Parameter**"),
+    Value = md("**Estimate**"),
+    Std.Error = md("**Std. Error**")
+  ) %>% 
+  fmt_missing(
+    columns = "Std.Error",
+    missing_text = "-"
+  ) %>% 
+  tab_options(
+    table.width = pct(80),
+    column_labels.font.weight = "bold",
+    table.font.size = px(13)
+  ) %>% 
+  tab_style(
+    style = cell_borders(sides = "bottom", color = "black", weight = px(2)),
+    locations = cells_column_labels()
+  )
+
+```
+
+### Comments
+
+The ARIMA(0,1,1) model shows strong performance for the AMOC strength data from January 2017 to June 2022 (@tbl-table14). The MA(1) coefficient is -0.899 with a small standard error, indicating a significant negative error correction. The AIC (327.75) is the lowest, suggesting the best overall model fit. While the model does not address seasonality, it outperforms others in terms of simplicity and accuracy.
+
+```{r,fig.cap='Diagnostic plots', fig-plot35,message=FALSE,warning=FALSE}
+# residuals check
+par(mfrow=c(1,2),mar=c(4,4,3.5,4))
+tsdiag(arima011.b)
+```
+
+### Comments
+
+The diagnostic plots for the ARIMA(0,1,1) model fitted to the AMOC strength data from 2017 to 2022 reveal key insights into its residuals (@fig-plot35). The standardized residuals plot shows no clear trend or significant outliers, fluctuating around zero, suggesting the model captures the data's level well after differencing. The ACF (Autocorrelation Function) of residuals indicates no significant autocorrelation beyond the first lag, with all autocorrelations falling within the confidence bounds (approximately ±0.1), implying the MA(1) term adequately accounts for short-term dependencies. The p-values for the Ljung-Box statistic, all above 0.05 up to lag 10, further confirm the absence of significant residual autocorrelation, supporting the model's adequacy for the data. Overall, these diagnostics suggest that the ARIMA(0,1,1) model is appropriately specified, though it lacks seasonal components, which may limit its ability to capture longer-term patterns in the AMOC strength time series.
+
+### ARIMA(1,1,1)
+
+```{r,message=FALSE,warning=FALSE}
+arima111 <- arima(moc.ts.train, order = c(1, 1, 1),seasonal = c(0,0,0))
+#summary(arima111)
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='ARIMA(1,1,1) Model Summary',tbl-table15}
+
+library(gt)
+
+# Extract model components
+arima111_summary <- data.frame(
+  Parameter = c("ar1", "ma1", "sigma^2", "AIC", "Log Likelihood"),
+  Value = c(arima111$coef["ar1"], arima111$coef["ma1"], 
+           arima111$sigma2, arima111$aic, arima111$loglik),
+  Std.Error = c(sqrt(arima111$var.coef["ar1", "ar1"]), 
+               sqrt(arima111$var.coef["ma1", "ma1"]), 
+               NA, NA, NA)
+)
+
+# Create table
+arima111_summary %>% 
+  gt() %>% 
+  tab_header(
+    title = "ARIMA(1,1,1) Model Summary",
+    subtitle = "First-differenced ARMA(1,1) model"
+  ) %>% 
+  fmt_number(
+    columns = c("Value", "Std.Error"),
+    decimals = 3
+  ) %>% 
+  cols_label(
+    Parameter = md("**Parameter**"),
+    Value = md("**Estimate**"),
+    Std.Error = md("**Std. Error**")
+  ) %>% 
+  fmt_missing(
+    columns = "Std.Error",
+    missing_text = "-"
+  ) %>% 
+  tab_footnote(
+    footnote = "Akaike Information Criterion", 
+    locations = cells_body(columns = "Parameter", rows = 4)
+  ) %>% 
+  tab_options(
+    table.width = pct(80),
+    column_labels.font.weight = "bold",
+    table.font.size = px(13)
+  ) %>% 
+  tab_style(
+    style = cell_borders(sides = "bottom", color = "black", weight = px(2)),
+    locations = cells_column_labels()
+  )
+```
+
+### Comments
+
+The ARIMA(1,1,1) model fitted to the AMOC strength data (January 2017 to June 2022) performs well overall ( @tbl-table15). While the AR(1) coefficient (0.069) is not statistically significant, the MA(1) coefficient (−0.912) is both strong and significant, indicating effective error correction. With an AIC of 329.49, it performs slightly worse than ARIMA(0,1,1) but better than all ARMA models and ARIMA(1,1,0), making it a strong candidate. However, the model still does not address the evident seasonality in the data.
+
+```{r,fig.cap='ARIMA111 Diagnostic plots', fig-plot36,message=FALSE,warning=FALSE}
+# residuals check
+par(mfrow=c(1,2),mar=c(4,4,3.5,4))
+tsdiag(arima111)
+```
+
+### Comments
+
+The diagnostic plots (@fig-plot36) for the ARIMA(1,1,1) model fitted to AMOC strength data (January 2017 to June 2022) highlight both strengths and limitations. The Standardized Residuals fluctuate around zero without a clear trend, indicating a good fit to the mean, though a few exceed ±2, suggesting some unexplained variation. The ACF of Residuals shows clear spikes at lags 0.5, 1.0, and 1.5 (6, 12, and 18 months), pointing to not modelled seasonality. Additionally, Ljung-Box p-values remain below 0.05 across all lags, confirming significant residual autocorrelation. While the model performs reasonably well based on its AIC (329.49), the persistent seasonal structure in the residuals indicates that ARIMA(1,1,1) is not sufficient. A SARIMA model would likely provide a better fit by capturing this seasonality.
+
+```{r,message=FALSE,warning=FALSE,tab.cap='AIC Comparison of Fitted Models for AMOC Strength',tbl-table16}
+# Load the gt library
+library(gt)
+
+# Create a data frame with model names and AIC values
+aic_data <- data.frame(
+  Model = c("ARMA(1,0)", "ARMA(0,1)", "ARMA(1,1)", 
+            "ARIMA(1,1,0)", "ARIMA(0,1,1)", "ARIMA(1,1,1)"),
+  AIC = c(332.28, 332.43, 333.70, 346.54, 327.75, 329.49)
+)
+
+# Create the table with gt
+aic_table <- gt(data = aic_data) %>%
+  tab_header(
+    title = "AIC Comparison of Fitted Models for AMOC Strength"
+  ) %>%
+  cols_label(
+    Model = "Model",
+    AIC = "AIC"
+  ) %>%
+  fmt_number(
+    columns = "AIC",
+    decimals = 2
+  )
+
+# Display the table
+aic_table
+```
+
+### Comments
+
+The AIC comparison table evaluates the fit quality of various models applied to the AMOC strength data ( @tbl-table16). Among them, the ARIMA(0,1,1) model has the lowest AIC value (327.75), indicating the best trade-off between goodness of fit and model simplicity. The ARIMA(1,1,1) model follows closely with an AIC of 329.49, showing similarly strong performance. In contrast, the ARMA models ARMA(1,0), ARMA(0,1), and ARMA(1,1) have slightly higher AICs (332.28, 332.43, and 333.70, respectively), indicating weaker fits. The ARIMA(1,1,0) model performs worst, with the highest AIC at 346.54. Although ARIMA(0,1,1) stands out in terms of AIC, all models fail to account for the clear seasonal patterns observed in the residuals, suggesting that a SARIMA model would likely provide a more complete and accurate representation of the data.
+
+## (c) Quarterly Means of AMOC
+
+```{r,message=FALSE,warning=FALSE}
+moc.ts.train <- window(moc.ts, start = c(2017, 1), end = c(2022, 6))
+
+# Convert monthly data to quarterly means
+moc.ts.quarterly.train <- aggregate(moc.ts.train, nfrequency = 4, FUN = mean)
+
+# Verify the quarterly time series
+#print(moc.ts.quarterly.train)
+
+```
+
+```{r,fig.cap='Quarterly Average of (AMOC) Jan 2017-Jun 2022', fig-plot37,message=FALSE,warning=FALSE}
+# Load required packages
+library(ggfortify)
+library(ggplot2)
+library(zoo)
+
+# Convert to zoo with Date index
+time_dates <- as.Date(as.yearmon(time(moc.ts.quarterly.train)))
+moc.quarterly.zoo <- zoo(coredata(moc.ts.quarterly.train), order.by = time_dates)
+
+# Plot with autoplot and scale_x_date
+p <- autoplot(moc.quarterly.zoo, ts.colour = "blue", ts.size = 1) +
+  labs(title = "Quarterly Average of (AMOC) Jan 2017-Jun 2022",
+       y = "Strength Circulation",
+       x = "Year") +
+  scale_x_date(
+    breaks = "1 year",  # Major breaks every year
+    minor_breaks = "3 months",  # Minor breaks every 3 months
+    limits = as.Date(c("2017-01-01", "2022-06-01")),  # Jan 2017 to Feb 2023
+    date_labels = "%Y",  # Label as years
+    expand = c(0, 0)
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_line(color = "gray", linetype = "dotted"),
+    panel.grid.minor = element_line(color = "gray", linetype = "dotted")
+  )
+
+# Display the plot
+print(p)
+```
+
+### Comments
+
+The plot of quarterly AMOC strength (@fig-plot37) shows values fluctuating between 14 and 20, with no clear trend but a visible annual cycle (period = 4 quarters). Peaks typically occur in Q2 or Q3 (e.g., mid-2018, mid-2019, mid-2021), while troughs appear around Q4 or Q1 (e.g., early 2018, late 2019), indicating strong seasonality. The series appears stationary overall, as the mean level hovers around 16–17 without a consistent upward or downward trend, though variability suggests potential non-stationarity in variance. This supports the need for a SARIMA model with seasonal differencing ($D$=1, period = 4) to capture the annual cycle, and possibly a non-seasonal difference ($d$=1) if stationarity is not confirmed by an ADF test.
+
+```{r,message=FALSE,warning=FALSE,tab.cap='ADF Test for Quarterly AMOC Strength',tbl-table17}
+
+library(tseries)
+adf.test(moc.ts.quarterly.train)
+
+# Load the gt library
+library(gt)
+
+# Create data frame for ADF test results
+adf_data <- data.frame(
+  Parameter = c("Dickey-Fuller", "Lag order", "p-value"),
+  Value = c(-4.6409, 2, 0.01)
+)
+
+# Create the table with gt
+adf_table <- gt(data = adf_data, rowname_col = "Parameter") %>%
+  tab_header(
+    title = "Augmented Dickey-Fuller Test for Quarterly AMOC Strength"
+  ) %>%
+  cols_label(
+    Value = "Value"
+  ) %>%
+  fmt_number(
+    columns = "Value",
+    rows = c(1, 3),  # Dickey-Fuller and p-value
+    decimals = 3
+  ) %>%
+  fmt_number(
+    columns = "Value",
+    rows = 2,  # Lag order
+    decimals = 0
+  ) %>%
+  tab_source_note(
+    source_note = "Alternative Hypothesis: Stationary"
+  )
+
+# Display the table
+adf_table
+```
+
+### Comments
+
+The ADF test for the quarterly AMOC strength data ( @tbl-table17) yields a Dickey-Fuller statistic of -4.641 with a lag order of 2 and a p-value of 0.010. Since the p-value is below 0.05, we reject the null hypothesis of a unit root, indicating that the series is stationary. This implies that non-seasonal differencing (𝑑 = 0) is not required for ARIMA or SARIMA modelling. However, the clear annual seasonality observed in the time series (with a period of 4) suggests that seasonal differencing (𝐷 = 1) may still be necessary in a SARIMA model to adequately capture the cyclical behaviour.
+
+```{r,fig.cap='ACF/PACF of Quarterly AMOC Strength',fig-plot38,message=FALSE,warning=FALSE}
+# ACF and PACF plots
+par(mfrow = c(1, 2),mar=c(4,4,2,1))
+acf(moc.ts.quarterly.train, main = "ACF of Quarterly \n AMOC Strength")
+pacf(moc.ts.quarterly.train, main = "PACF of Quarterly \n AMOC Strength")
+
+```
+
+### Comments
+
+The ACF and PACF plots (@fig-plot38) for the quarterly AMOC strength data provide insights into its structure. The ACF plot shows no significant spikes, with all values within the confidence bounds (±0.4), indicating no strong autocorrelation or slow decay, which aligns with the ADF test (p-value = 0.01) confirming stationarity. However, the lack of clear seasonal spikes at lags 4, 8, etc., suggests that the annual cycle (period = 4) seen in the time series plot may be less pronounced in the autocorrelation structure, possibly due to the small sample size (22 quarters). The PACF plot also shows no significant spikes, with values within ±0.4, suggesting no clear AR component. Given stationarity ($d$=0), but considering the visible seasonality in the time series plot, a SARIMA model with seasonal differencing ($D$=1, period = 4) and minimal non-seasonal components (e.g., SARIMA(0,0,0)(0,1,1)\[4\]) may be appropriate to capture the annual cycle.
+
+### ARMA and SARIMA Models
+
+The time series plot shows an annual cycle, so we will use a SARIMA model with $D$=1, period = 4. Additionally, the ACF and PACF plots for the quarterly data showed no significant spikes at non-seasonal lags (e.g., lag 1, 2, 3), all within the confidence bounds (±0.4). This strongly suggests that there’s no need for non-seasonal AR ($𝑝$) or MA ($q$) terms, as there’s no clear non-seasonal autocorrelation or error structure to model.
+
+```{r,message=FALSE,warning=FALSE}
+# ARMA(1,0)
+arma10 <- arima(moc.ts.quarterly.train, order = c(1, 0, 0))
+#arma10
+# ARMA(0,1)
+arma01 <- arima(moc.ts.quarterly.train, order = c(0, 0, 1))
+#arma01
+# ARMA(1,1)
+arma11 <- arima(moc.ts.quarterly.train, order = c(1, 0, 1))
+#arma11
+# SARIMA(0,0,0)(0,1,1) with period=4
+sarima000_011 <- arima(moc.ts.quarterly.train, order = c(0, 0, 0), 
+                       seasonal = list(order = c(0, 1, 1), period = 4))
+#sarima000_011
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='Comparison of Fitted Models for Quarterly AMOC Strength (Jan-2017 to Jun-2022',tbl-table18}
+library(gt)
+library(tidyverse)
+
+# Function to extract coefficients from a model
+extract_coefficients <- function(model, model_name) {
+  coefs <- data.frame(
+    Parameter = names(model$coef),
+    Estimate = model$coef,
+    Std_Error = sqrt(diag(model$var.coef))
+  )
+  coefs$Model <- model_name
+  coefs
+}
+
+# Function to extract fit statistics
+extract_fit_stats <- function(model, model_name) {
+  data.frame(
+    Model = model_name,
+    Sigma2 = model$sigma2,
+    Log_Likelihood = model$loglik,
+    AIC = model$aic
+  )
+}
+
+# Extract all coefficients
+coef_data <- bind_rows(
+  extract_coefficients(arma10, "ARMA(1,0)"),
+  extract_coefficients(arma01, "ARMA(0,1)"),
+  extract_coefficients(arma11, "ARMA(1,1)"),
+  extract_coefficients(sarima000_011, "SARIMA(0,0,0)(0,1,1)[4]")
+) %>% 
+  mutate(Parameter = case_when(
+    Parameter == "ar1" ~ "ar1",
+    Parameter == "ma1" ~ "ma1",
+    Parameter == "intercept" ~ "intercept",
+    Parameter == "sma1" ~ "sma1",
+    TRUE ~ Parameter
+  ))
+
+# Extract all fit statistics
+fit_data <- bind_rows(
+  extract_fit_stats(arma10, "ARMA(1,0)"),
+  extract_fit_stats(arma01, "ARMA(0,1)"),
+  extract_fit_stats(arma11, "ARMA(1,1)"),
+  extract_fit_stats(sarima000_011, "SARIMA(0,0,0)(0,1,1)[4]")
+)
+
+# Create coefficients table
+coef_table <- gt(data = coef_data, groupname_col = "Model") %>%
+  tab_header(
+    title = "Comparison of Fitted Models for Quarterly AMOC Strength 
+    (Jan-2017 to Jun-2022)"
+  ) %>%
+  tab_spanner(
+    label = "Coefficients",
+    columns = c("Estimate", "Std_Error")
+  ) %>%
+  cols_label(
+    Parameter = "Parameter",
+    Estimate = "Estimate",
+    Std_Error = "Standard Error"
+  ) %>%
+  fmt_number(
+    columns = c("Estimate", "Std_Error"),
+    decimals = 3
+  ) %>%
+  tab_options(
+    table.width = pct(90),
+    column_labels.font.weight = "bold"
+  )
+
+# Create fit statistics table
+fit_table <- gt(data = fit_data) %>%
+  tab_spanner(
+    label = "Model Fit Statistics",
+    columns = c("Sigma2", "Log_Likelihood", "AIC")
+  ) %>%
+  cols_label(
+    Model = "Model",
+    Sigma2 = "Sigma2",
+    Log_Likelihood = "Log Likelihood",
+    AIC = "AIC"
+  ) %>%
+  fmt_number(
+    columns = c("Sigma2", "Log_Likelihood", "AIC"),
+    decimals = 3
+  ) %>%
+  tab_options(
+    table.width = pct(90),
+    column_labels.font.weight = "bold"
+  )
+
+# Display tables
+coef_table
+
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='AIC comparison table',tbl-table19}
+# AIC comparison table
+fit_table
+```
+
+### Comments
+
+The tables ( @tbl-table18, @tbl-table19) compare ARMA and SARIMA models fitted to the quarterly AMOC strength data. Both ARMA(1,0) (AIC = 92.76) and ARMA(0,1) (AIC = 93.09) have non-significant coefficients, indicating weak performance and failure to capture the seasonal pattern. ARMA(1,1) performs worse (AIC = 94.31) with large standard errors, suggesting parameter instability. In contrast, the SARIMA(0,0,0)(0,1,1)\[4\] model achieves the lowest AIC (79.71) and includes a seasonal MA(1) term (sma1 = -0.367, s.e. = 0.295), effectively capturing the annual cycle. These results show that the SARIMA model provides the best fit by addressing the seasonality present in the data, while the ARMA models fall short.
+
+```{r,fig.cap='SARIMA Diagnostic plots',fig-plot39,message=FALSE,warning=FALSE}
+# residuals check
+par(mar=c(4,5,3.5,5))
+tsdiag(sarima000_011)
+```
+
+### Comments
+
+The diagnostic plots for the SARIMA(0,0,0)(0,1,1)[4] model demonstrate that the "Standardized Residuals" plot shows residuals fluctuating around zero with no clear trend, and all are within ±2.5, indicating no obvious outliers or not modelled patterns ( @fig-plot39). The "ACF of Residuals" plot has no significant spikes (all within ±0.4), suggesting no residual autocorrelation, meaning the model captures the data’s structure well. The "p-values for Ljung-Box statistic" are all above 0.05 (around 0.8), failing to reject the null hypothesis of no autocorrelation in the residuals, further confirming the model’s adequacy. Overall, the SARIMA(0,0,0)(0,1,1)[4] model effectively captures the annual cycle and stationarity of the data, with no significant residual patterns, making it a suitable fit for the quarterly dataset.
+
+## (d) Dynamic Linear Model with a linear trend and a seasonal component to Monthly dataset
+
+### Monthly DLM
+
+```{r,message=FALSE,warning=FALSE}
+# Defining the DLM Model
+library(dlm)
+build_dlm_monthly <- function(par) {
+  dlmModPoly(order = 2, dV = exp(par[1]), 
+             dW = c(exp(par[2]), exp(par[3]))) + 
+  dlmModSeas(frequency = 12, dV = 0, 
+             dW = rep(exp(par[4]), 11))
+}
+
+# Optimising the Variances
+## This step uses maximum likelihood estimation (MLE) 
+# to find the optimal values of par that best fit the data
+dlm_fit_monthly <- dlmMLE(y = as.numeric(moc.ts.train), 
+                          parm = c(0, 0, 0, 0), build = build_dlm_monthly)
+
+# fit DLM model
+dlm_model_monthly <- build_dlm_monthly(dlm_fit_monthly$par)
+
+
+# Filter the model to get fitted values and residuals
+dlm_filtered_monthly <- dlmFilter(y = as.numeric(moc.ts.train), 
+                                  mod = dlm_model_monthly)
+
+# Smooth the model to get state estimates
+dlm_smoothed_monthly <- dlmSmooth(dlm_filtered_monthly)
+
+```
+
+```{r,message=TRUE,warning=FALSE}
+# Compute the negative log-likelihood
+neg_log_lik_monthly <- dlmLL(y = as.numeric(moc.ts.train), 
+                             mod = dlm_model_monthly)
+
+# Compute the actual log-likelihood
+log_lik_monthly <- -neg_log_lik_monthly
+
+# Compute the number of parameters (k)
+# - Variances: 4 (V, W_level, W_slope, W_seas)
+k <- 4
+
+# Compute AIC
+aic_monthly <- -2 * log_lik_monthly + 2 * k
+cat("Log-Likelihood for Monthly DLM:", log_lik_monthly, "\n")
+cat("AIC for Monthly DLM:", aic_monthly, "\n")
+```
+
+```{r,message=FALSE,warning=FALSE}
+# Defining the DLM Model
+library(dlm)
+build_dlm_quarterly <- function(par) {
+  dlmModPoly(order = 2, dV = exp(par[1]), dW = c(exp(par[2]), exp(par[3]))) + 
+  dlmModSeas(frequency = 4, dV = 0, dW = rep(exp(par[4]), 3))
+}
+
+# Optimising the Variances
+## This step uses maximum likelihood estimation (MLE) 
+# to find the optimal values of par that best fit the data
+dlm_fit_quarterly <- dlmMLE(y = as.numeric(moc.ts.quarterly.train), 
+                            parm = c(0, 0, 0, 0), 
+                            build = build_dlm_quarterly)
+
+# fit DLM model
+dlm_model_quarterly <- build_dlm_quarterly(dlm_fit_quarterly$par)
+
+
+# Filter the model to get fitted values and residuals
+dlm_filtered_quarterly <- dlmFilter(y = as.numeric(moc.ts.quarterly.train),
+                                    mod = dlm_model_quarterly)
+
+# Smooth the model to get state estimates
+dlm_smoothed_quarterly <- dlmSmooth(dlm_filtered_quarterly)
+```
+
+```{r}
+# Compute the negative log-likelihood
+neg_log_lik_quarterly <- dlmLL(y = as.numeric(moc.ts.quarterly.train), 
+                               mod = dlm_model_quarterly)
+
+# Compute the actual log-likelihood
+log_lik_quarterly <- -neg_log_lik_quarterly
+
+# Compute the number of parameters (k)
+# - Variances: 4 (V, W_level, W_slope, W_seas)
+k <- 4
+
+# Compute AIC
+aic_quarterly <- -2 * log_lik_quarterly + 2 * k
+cat("Log-Likelihood for Quarterly DLM:", log_lik_quarterly, "\n")
+cat("AIC for Quarterly DLM:", aic_quarterly, "\n")
+```
+
+#### Comments
+
+The AIC(134.5713) for the quarterly DLM is the lowest, making it the best model compared to the monthly DLM with AIC of 406.8182.
+
+## (e) Forecast of the best models from b to d
+
+The best model for the monthly data (training set Jan 2017 to Jun 2022) is ARIMA(0,1,1). While for the quarterly data (training set 2017 to 2022), the best model is SARIMA(0,0,0)(0,1,1)\[4\]. For the DLM models, quarterly one is the best over monthly DLM.
+
+#### Forecast of the next 8 months using the best models
+
+```{r,message=FALSE,warning=FALSE}
+# Forecast of the next 8 months for the arima011
+library(forecast)
+arima_forecast_monthly <- forecast(arima011.b, h=8)
+```
+
+```{r,message=FALSE,warning=FALSE}
+# Forecast the next 8 months for the sarima000_011
+library(forecast)
+sarima_forecast_quarterly <- forecast(sarima000_011, h=2)
+```
+
+```{r,message=FALSE,warning=FALSE}
+# Forecast the next 8 months for the monthly DLM
+library(forecast)
+dlm_forecast_monthly <- dlmForecast(dlm_filtered_monthly, nAhead = 8)
+
+### Compute standard deviations for confidence intervals
+sqrtR.monthly <- sapply(dlm_forecast_monthly$R, function(x)sqrt(x[1,1]))
+
+# Compute 95% confidence intervals
+pl.month <- dlm_forecast_monthly$a[,1] + 
+                    qnorm(0.025, sd = sqrtR.monthly)
+
+pu.month <- dlm_forecast_monthly$a[,1] + 
+                    qnorm(0.975, sd = sqrtR.monthly)
+
+
+# Convert forecast vectors to ts objects with correct time indices
+# Forecasts are for Jul 2022 (2022.5) to Feb 2023 (2023.0833), frequency = 12
+
+forecast_dates <- seq(from = 2022 + 6/12, to = 2023 + 1/12,
+                      length.out = 8)
+
+forecast_level_ts <- ts(dlm_forecast_monthly$a[,1], 
+                        start = c(2022, 7), frequency = 12)
+
+forecast_mean_ts <- ts(dlm_forecast_monthly$f, 
+                       start = c(2022, 7), frequency = 12)
+
+ # Compute 95% confidence intervals
+pl_month_ts <- ts(pl.month, start = c(2022, 7), frequency = 12)
+pu_month_ts <- ts(pu.month, start = c(2022, 7), frequency = 12)
+
+# Combine with training data using ts.union
+x.month <- ts.union(
+  window(moc.ts.train, start = c(2017, 1)),
+  forecast_level_ts,
+  forecast_mean_ts,
+  pl_month_ts,
+  pu_month_ts
+)
+```
+
+```{r,message=FALSE,warning=FALSE}
+# Forecast the next 8 months for the quarterly DLM
+library(forecast)
+dlm_forecast_quarterly <- dlmForecast(dlm_filtered_quarterly, nAhead = 2)
+
+### Compute standard deviations for confidence intervals
+sqrtR.quarterly <- sapply(dlm_forecast_quarterly$R, function(x)sqrt(x[1,1]))
+
+# Compute 95% confidence intervals
+pl.quarterly <- dlm_forecast_quarterly$a[,1] + 
+                    qnorm(0.025, sd = sqrtR.quarterly)
+
+pu.quarterly <- dlm_forecast_quarterly$a[,1] + 
+                    qnorm(0.975, sd = sqrtR.quarterly)
+
+forecast_level_ts <- ts(dlm_forecast_quarterly$a[,1],
+                        start = c(2022, 3), frequency = 4)
+
+forecast_mean_ts <- ts(dlm_forecast_quarterly$f, 
+                        start = c(2022, 3), frequency = 4)
+
+pl_quarterly_ts <- ts(pl.quarterly, 
+                      start = c(2022, 3), frequency = 4)
+
+pu_quarterly_ts <- ts(pu.quarterly, 
+                      start = c(2022, 3), frequency = 4)
+
+x.quarterly <- ts.union(
+  window(moc.ts.quarterly.train, start = c(2017, 1)),
+  forecast_level_ts,
+  forecast_mean_ts,
+  pl_quarterly_ts,
+  pu_quarterly_ts
+)
+```
+
+```{r,fig.cap='Monthly and Quarterly plots for ARIMA, SARIMA and DLM Models',fig-plot40,message=FALSE,warning=FALSE}
+# Set up a 2x2 plotting grid
+par(mfrow = c(2, 2), mar = c(4, 4, 2, 0))
+
+# Monthly ARIMA Forecast
+plot(arima_forecast_monthly, main = "Monthly ARIMA Forecast", 
+     ylab = "AMOC Strength",xlab = 'Year')
+
+# Quarterly SARIMA Forecast
+plot(sarima_forecast_quarterly, main = "Quarterly SARIMA Forecast", 
+     xlab = 'Year',ylab = "AMOC Strength")
+
+# Monthly DLM Forecast
+plot(x.month, plot.type = "single", 
+     col = c("black", "brown", "brown", "blue", "blue"),
+     ylab = "AMOC Strength", 
+     ylim = c(8, 25),
+     main = "Monthly DLM Forecast",xlab = 'Year')
+
+# Quarterly DLM Forecast
+plot(x.quarterly, plot.type = "single",type='o',
+     col = c("black", "brown", "brown", "blue", "blue"), 
+     ylim = c(8, 25),
+     main = "Quarterly DLM Forecast",xlab = 'Year',ylab = "AMOC Strength")
+```
+
+#### Comments
+
+The four forecast plots (@fig-plot40) compare different models applied to AMOC strength data, using either monthly or quarterly time steps. The Monthly ARIMA forecast (top-left) shows a relatively flat projection, with the mean forecast remaining constant and uncertainty widening over time. This suggests that the ARIMA model fails to capture underlying seasonality or recent trends, making it less reliable for dynamic forecasting. In contrast, the Quarterly SARIMA forecast (top-right) provides more realistic projections by incorporating seasonal differencing. The forecast centers around 16.5 and displays structured prediction intervals that reflect the observed annual cycle, highlighting SARIMA’s strength in handling seasonality.
+
+The Monthly DLM forecast (bottom-left) offers a more flexible approach, capturing subtle changes in trend with forecast values that adapt slightly over time. The fan-like shape of the prediction intervals indicates a more nuanced treatment of uncertainty compared to ARIMA. Finally, the Quarterly DLM forecast (bottom-right) appears the most adaptive, with a clear trend and forecasted values that slightly decrease over time. Forecast uncertainty is well represented through point-wise intervals, showing the model's responsiveness to recent data. Overall, while SARIMA effectively models seasonality, the DLM models, especially the quarterly version offer greater adaptability and responsiveness to recent dynamics, making them more suitable for capturing both trend and variability in AMOC strength. However, SARIMA (AIC 79.71) appears to be the best model based on AIC and aligns with the quarterly data’s range, making it more reliable for quarterly predictions.
+
+# Question 3: California daily temperatures
+
+```{r,message=FALSE,warning=FALSE}
+# Load libraries
+library(tidyverse)
+library(ggplot2)
+library(sf)
+library(geoR)
+library(lubridate)
+
+# Read the data which contains Lon Lat
+metadata <- read.csv("D:/Bureau/University of Exeter UK/Modules/Data Science and Statistical Modelling in Space and Time/Coursework/metadataCA.csv")
+
+
+# read temperature data of CA
+temp <- read.csv("D:/Bureau/University of Exeter UK/Modules/Data Science and Statistical Modelling in Space and Time/Coursework/MaxTempCalifornia.csv")
+
+# Convert date to proper format
+temp$Date <- as.Date(as.character(temp$Date), format = "%Y%m%d")
+
+# Reshape temperature data to long format for easier plotting
+temp_long <- temp %>%
+  pivot_longer(cols = -Date, names_to = "Site", values_to = "MaxTemp")
+```
+
+## (a) Spatial and Time Series Plots of Daily Temperature in California
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Spatio-Temporel plots of Average Maximum Daily Temperature in California (2012)',fig-plot41}
+library(geoR)
+library(tidyverse)
+
+# lubridate for month extraction
+library(lubridate)
+
+# monthly average max temperatures per site (for time series plot)
+temp_monthly <- temp_long %>%
+  mutate(Month = floor_date(Date, "month")) %>%
+  group_by(Site, Month) %>%
+  summarise(AvgMaxTemp = mean(MaxTemp, na.rm = TRUE)) %>%
+  ungroup()
+
+# Calculate yearly average max temperature per site (for spatial plot)
+avg_temps_yearly <- temp_long %>%
+  group_by(Site) %>%
+  summarise(AvgMaxTemp = mean(MaxTemp, na.rm = TRUE)) %>%
+  # Standardize site names: replace dots with spaces
+  mutate(Site = gsub("\\.", " ", Site))
+
+
+# Merge with metadata (using yearly averages for spatial plot)
+temp_CA <- metadata %>%
+  left_join(avg_temps_yearly, by = c("Location" = "Site"))
+
+# Check for missing values
+#colSums(is.na(temp_CA))
+
+
+
+##  convert the data into a geodata object 
+temp_CA_geo <- as.geodata(temp_CA, coords.col = c("Long", "Lat"), 
+                      data.col = "AvgMaxTemp")
+
+
+
+
+
+# spatial plot
+plot(temp_CA_geo, main.title = "Average Maximum Daily Temperature in California (2012)")
+
+mtext("AvgMaxTemp \n in California (2012)", side = 3, line = -2,
+      outer = TRUE, cex = 0.7)
+```
+
+#### Comments
+
+The plots (@fig-plot41) illustrate the relationship between geographic coordinates and average maximum temperature (AvgMaxTemp) in California for 2012. The top-left scatter plot shows Y-coordinates (latitude) ranging from 34 to 38 against X-coordinates (longitude) from -122 to -118, with various symbols indicating different data points, suggesting spatial variability in temperature across the region. The top-right scatter plot displays AvgMaxTemp (15 to 35°C) against Y-coordinates, revealing a weak correlation, with temperatures generally increasing with higher latitudes, though with considerable scatter. The bottom-left scatter plot of data against X-coordinates shows a concentration of points between 20 and 30, indicating a possible clustering of temperature data along the longitude range. The bottom-right density plot of AvgMaxTemp highlights a bimodal distribution, with peaks around 20–25°C and 30–35°C, suggesting two distinct temperature regimes in the dataset, likely reflecting coastal and inland climatic differences in California.
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Monthly Average Maximum Temperature by Site (2012)',fig-plot42}
+
+# Faceted time series plot
+ggplot(temp_monthly, aes(x = Month, y = AvgMaxTemp)) +
+  geom_line() +
+  facet_wrap(~ Site, ncol = 3) +
+  theme_minimal() +
+  labs(title = "Monthly Average Maximum Temperature by Site (2012)",
+       x = "Month", y = "Avg Max Temperature (°C)") +
+  scale_x_date(breaks = seq.Date(as.Date("2012-01-01"), 
+                                 as.Date("2012-12-01"), by = "month"),
+               labels = c("J", "F", "M", "A", "M", "J", "J", 
+                          "A", "S", "O", "N", "D"))
+```
+
+#### Comments
+
+The plot (@fig-plot42) displays the monthly average maximum temperature (°C) for 2012 across ten California sites: Barstow, Cedar Park, Death Valley, Fresno, LA, Napa, Ojai, Redding, San Diego, San Francisco, and Santa Cruz. Each site exhibits a clear seasonal pattern, with temperatures peaking in summer (June to August) and dipping in winter (December to February), ranging from approximately 10°C to 40°C. Death Valley stands out with the highest peak near 40°C, reflecting its extreme desert climate, while San Francisco and Santa Cruz show the lowest peaks, around 20°C, consistent with their coastal moderation. Inland sites like Fresno and Redding reach highs around 35°C, while coastal sites like San Diego and LA peak around 25–30°C. The consistent rise and fall across all sites indicate a strong annual cycle, with varying amplitudes influenced by geographic location and proximity to the coast.
+
+## (b) Spatial Gaussian Process Model using MLE
+
+```{r,message=FALSE,warning=FALSE}
+# Spatial Gaussian Process Model for December 13, 2012
+# Extract data for December 13, 2012
+library(tidyverse)
+# Reshape temperature data to long format and standardize Site names
+temp_long <- temp %>%
+  pivot_longer(cols = -Date, names_to = "Site", values_to = "MaxTemp") %>%
+  # Remove dots and spaces, lowercase
+  mutate(Site = tolower(gsub("[\\. ]", "", Site)))  
+
+# Standardize Location names in metadata
+metadata <- metadata %>%
+  # Remove dots and spaces, lowercase
+  mutate(Location = tolower(gsub("[\\. ]", "", Location)))  
+
+
+temp_dec13 <- temp_long %>%
+  filter(Date == as.Date("2012-12-13")) %>%
+  left_join(metadata, by = c("Site" = "Location")) %>%
+  # Standardize site names: replace dots with spaces
+  mutate(Site = tolower(gsub("[\\. ]", "", Site)))
+  
+
+# Convert to geodata object
+temp_dec13_geo <- as.geodata(temp_dec13, coords.col = c("Long", "Lat"), 
+                             data.col = "MaxTemp")
+
+# Standardize temp_dec13_geo coordinates
+coords <- temp_dec13_geo$coords
+mean_x <- mean(coords[, 1])
+mean_y <- mean(coords[, 2])
+sd_x <- sd(coords[, 1])
+sd_y <- sd(coords[, 2])
+temp_dec13_geo$coords[, 1] <- (coords[, 1] - mean_x) / sd_x
+temp_dec13_geo$coords[, 2] <- (coords[, 2] - mean_y) / sd_y
+
+```
+
+```{r,fig.cap='Empirical variogram plots',fig-plot43,message=FALSE,warning=FALSE}
+library(geoR)
+## Empirical variogram plots with maximum distance equal to 10
+par(mfrow=c(3,2),mar=c(3.8,4,2,2))
+vario.CA.cte <- variog(temp_dec13_geo, option='bin',
+                       trend = 'cte')
+plot(vario.CA.cte, main = "Sample Variogram with Constante Trend",pch=19)
+
+# Variogram plot with 1st trend = 1st
+vario.CA.trend1 <- variog(temp_dec13_geo, option='bin',
+                          trend = '1st')
+plot(vario.CA.trend1, main = "Sample Variogram with 1st Trend",pch=19)
+
+# Variogram plot with trend = 2nd
+vario.CA.trend2 <- variog(temp_dec13_geo, option='bin',
+                          trend = '2nd')
+plot(vario.CA.trend2, main = "Sample Variogram with 2nd Trend",pch=19)
+
+
+```
+
+#### Comments
+
+To solve and prevent singularity and scaling issues related to system is computationally singular that we encountered in the model validation by ensuring the covariance function, we standardised coordinates to avoid extreme values in the covariance matrix [@Cressie1985; @Stein1990].
+
+The variograms (@fig-plot43) illustrate how spatial variability changes under different trend assumptions for a dataset, likely maximum temperatures at 11 California sites. The "Sample Variogram with Constant Trend" shows high semivariance (\~25) even at short distances and an irregular decline with distance, indicating significant spatial variability and weak spatial correlation. This suggests that a constant mean model does not fit the data well. In contrast, the "Empirical Variogram with 1st Trend" displays a lower semivariance (\~10) and a more consistent decrease with distance, implying that introducing a linear trend (such as a spatial gradient in temperature) better captures the underlying structure and reduces residual variability. Finally, the "Empirical Variogram with 2nd Trend" shows an even lower semivariance (\~8) and the smoothest decline, suggesting that a quadratic trend (e.g., capturing curvature in temperature patterns) fits the data best. This stronger spatial dependence should lead to more accurate predictions for locations like San Diego and Fresno.
+
+```{r,message=FALSE,warning=FALSE}
+library(geoR)
+gp_model_dec13.mat52 <- likfit(temp_dec13_geo, ini.cov.pars = c(1, 1), 
+                        cov.model = "matern",trend = '2nd', 
+                        nugget = 4.483,kappa = 5/2,fix.nugget = T)
+#summary(gp_model_dec13.mat52)
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='Summary of Spatial GP Model (2nd Trend)',tbl-table21}
+library(gt)
+library(tidyverse)
+
+# Create data frames for each section
+# Coefficients (trend parameters)
+coefs <- data.frame(
+  Parameter = c("beta0 (Intercept)", "beta1 (x)", 
+                "beta2 (y)", "beta3 (x^2)", "beta4 (xy)", "beta5 (y^2)"),
+  Value = gp_model_dec13.mat52$parameters.summary$values[1:6]  # First 6 values for trend coefficients
+)
+
+# Model parameters (spatial parameters, nugget)
+parameters <- data.frame(
+  Parameter = c("Variance (sigmasq)", "Range (phi)", 
+                "Kappa", "Nugget (tausq)"),
+  Value = c(
+    gp_model_dec13.mat52$parameters.summary$values[8],  # sigmasq
+    gp_model_dec13.mat52$parameters.summary$values[9],  # phi
+    gp_model_dec13.mat52$parameters.summary$values[10], # kappa
+    gp_model_dec13.mat52$parameters.summary$values[7]  # tausq
+  )
+)
+
+# Fit metrics (log-likelihood, AIC)
+fit_metrics <- data.frame(
+  Parameter = c("Log-Likelihood", "AIC"),
+  Value = c(gp_model_dec13.mat52$loglik, gp_model_dec13.mat52$AIC)
+)
+
+# Combine into one data frame
+summary_table <- bind_rows(
+  data.frame(Group = "Coefficients", coefs),
+  data.frame(Group = "Parameters", parameters),
+  data.frame(Group = "Fit Metrics", fit_metrics)
+)
+
+# Create the gt table
+gt_table <- summary_table %>%
+  gt(groupname_col = "Group") %>%
+  tab_header(
+    title = "Summary of Spatial GP Model (2nd Trend)",
+    subtitle = "Fitted for Maximum Temperatures on December 13, 2012"
+  ) %>%
+  fmt_number(
+    columns = Value,
+    decimals = 3
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_row_groups()
+  ) %>%
+  tab_style(
+    style = cell_text(align = "center"),
+    locations = cells_body(columns = everything())
+  )
+
+# Print the table
+gt_table
+```
+
+#### Comments
+
+The spatial Gaussian Process (GP) model, fitted for maximum temperatures on December 13, 2012, with a 2nd-order polynomial trend, provides a comprehensive summary of its parameters and performance (@tbl-table21). The trend coefficients indicate a strong baseline temperature influence, with a large intercept ( $\beta_0$= 8,787.688) and significant linear effects from the spatial coordinates ($\beta_1$`(x) = 195.354`, $\beta_2$ `(y) = 161.992`). The quadratic and interaction terms ( $\beta_3$ ( $x^2$) = 1.103, $\beta_4$ `(xy) = 0.898`, $\beta_5$ ( $y^2$) `= 1.902`) suggest mild curvature in the temperature surface. The spatial covariance parameters reveal no spatial variability (`sigmasq = 0.000`, `phi = 0.000`), implying that the model relies entirely on the nugget effect (`tausq = 4.483`) to capture local variability, likely due to measurement noise or micro-scale variations. The Matern covariance function with `kappa = 2.500` indicates a moderately smooth spatial process. The model's fit, assessed via a log-likelihood of -23.860 and an AIC of 63.720, suggests a reasonable but not optimal fit, potentially due to the lack of spatial correlation, which may warrant further investigation into data quality or model specification.
+
+```{r,fig.cap='Model Validation',fig-plot44,message=FALSE,warning=FALSE}
+# Model Validation
+xv_dec13 <- xvalid(temp_dec13_geo,model = gp_model_dec13.mat52)
+
+# Set layout
+par(mfrow = c(3, 2), mar = c(4, 2, 0.5, 2))
+plot(xv_dec13, error = TRUE, std.error = FALSE, pch = 19)
+mtext("Matern52, Trend = 2nd", side = 3, line = -2,
+      outer = TRUE, cex = 0.9)
+```
+
+#### Comments
+
+The diagnostic plots (@fig-plot44) assess the fit of a spatial model with a Matérn covariance (Matern52) and a second-order polynomial trend. The top-left plot compares observed versus predicted values, showing a generally good fit with some deviations. The bottom-left and bottom-right plots show residuals (data - predicted) versus predicted and observed data, respectively these suggest that some predictions substantially under- or overestimate the observed values, as evidenced by outliers. The Q-Q plot (top-right) reveals a notable departure from the expected normal distribution, indicating non-normal residuals. The histogram of theoretical probabilities (middle-right) reinforces this skewness, showing an asymmetric distribution. The middle-left spatial residual plot shows the spatial distribution of prediction errors; blue plus signs and red crosses indicate over- and under-prediction, respectively, suggesting possible spatial correlation or heterogeneity unaccounted for. Overall, while the model captures the trend reasonably well, the residual diagnostics indicate some non-normality and heteroscedasticity, suggesting room for model improvement.
+
+```{r,message=FALSE,warning=FALSE,tab.cap='Kriging Predictions for Maximum Temperatures',tbl-table22}
+
+# Extract actual MaxTemp from temp_long for Dec 13, 2012
+Actual_temps <- temp_long %>%
+  filter(Date == as.Date("2012-12-13"), 
+         Site %in% c("sandiego", "fresno")) %>%
+  select(Site, MaxTemp) %>%
+  rename(Location = Site, Actual_Temp = MaxTemp) %>%
+  mutate(Location = recode(Location, "sandiego" = "San Diego",
+                           "fresno" = "Fresno"))
+
+# Coordinates for San Diego and Fresno
+pred_coords <- metadata %>%
+  filter(Location %in% c("sandiego", "fresno")) %>%
+  select(Long, Lat)
+
+# Standardize pred_coords
+pred_coords$Long <- (pred_coords$Long - mean_x) / sd_x
+pred_coords$Lat <- (pred_coords$Lat - mean_y) / sd_y
+pred_coords_matrix <- as.matrix(pred_coords[, c("Long", "Lat")])
+
+# Kriging predictions
+predictions <- krige.conv(temp_dec13_geo, 
+                          locations = pred_coords_matrix,
+                          krige = krige.control(
+                            obj.model = gp_model_dec13.mat52,
+                            trend.d = '2nd',trend.l = '2nd'))
+
+
+library(gt)
+library(dplyr)
+
+# Combine the results with actual temperatures
+results <- data.frame(
+  Location = c("San Diego", "Fresno"),
+  Longitude = pred_coords$Long,
+  Latitude = pred_coords$Lat,
+  Predicted_Temp = predictions$predict,
+  Variance = predictions$krige.var
+) %>%
+  left_join(Actual_temps, by = "Location")
+
+# Create the gt table with Actual_Temp
+gt_table <- results %>%
+  gt() %>%
+  tab_header(
+    title = "Kriging Predictions for Maximum Temperatures",
+    subtitle = "San Diego and Fresno, December 13, 2012"
+  ) %>%
+  cols_label(
+    Location = "Location",
+    Longitude = "Long (Std)",
+    Latitude = "Lat (Std)",
+    Predicted_Temp = "Predicted Temp (°C)",
+    Actual_Temp = "Actual Temp (°C)",
+    Variance = "Prediction Variance"
+  ) %>%
+  fmt_number(
+    columns = c(Longitude, Latitude, Predicted_Temp, Actual_Temp, Variance),
+    decimals = 3
+  ) %>%
+  tab_style(
+    style = cell_text(align = "center"),
+    locations = cells_body(columns = everything())
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels(columns = everything())
+  ) %>%
+  tab_options(
+    table.font.size = 12,
+    heading.title.font.size = 16,
+    heading.subtitle.font.size = 14,
+    table.border.top.color = "black",
+    table.border.bottom.color = "black"
+  )
+
+# Print the table
+gt_table
+```
+
+#### Comments
+
+The kriging predictions for maximum temperatures on December 13, 2012, at San Diego and Fresno (@tbl-table22) show exact matches between predicted and actual values: 16.1°C for San Diego (standardised longitude 1.092, latitude -1.632) and 16.7°C for Fresno (standardised longitude -0.027, latitude 0.198). The prediction variance for both locations is 0.000, indicating absolute confidence in the kriging model’s estimates, likely due to strong spatial correlation and the model’s ability to interpolate temperatures accurately using nearby data points. These results suggest that the kriging method effectively captured the spatial distribution of maximum temperatures for that specific date, producing highly precise predictions with no uncertainty in the model’s output. However, the zero variance raises a potential concern about overfitting or data leakage, which could be investigated further to ensure the model’s robustness for other predictions.
+
+## (c) Time series modelling to produce forecasts of the maximum temperature in San Diego and Fresno for December 9th-December 13th and December 13th-December 17th
+
+```{r,message=FALSE,warning=FALSE}
+library(dplyr)
+library(forecast)
+library(gt)
+library(lubridate)
+
+# Prepare data from temp_long
+temp_data <- temp_long %>%
+  filter(Site %in% c("sandiego", "fresno")) %>%
+  mutate(Location = recode(Site, "sandiego" = "San Diego", "fresno" = "Fresno")) %>%
+  select(Date, Location, MaxTemp) %>%
+  arrange(Location, Date)
+
+```
+
+### Time Series Modelling and forecasts for San Diego from December 9th-December 13th
+
+```{r,message=FALSE,warning=FALSE}
+# Filter training data up to December 08, 2012
+train_data_p1 <- temp_data %>%
+  filter(Date <= as.Date("2012-12-08"))
+
+# time series for San Diego
+sd_data_p1 <- train_data_p1 %>%
+  filter(Location == "San Diego") %>%
+  pull(MaxTemp)
+
+# Daily data, yearly seasonality
+sd_ts_p1 <- ts(sd_data_p1, frequency = 365,
+               start = c(2012, 1))  
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='ADF Test Results',tbl-table23}
+library(tseries)
+# If the p-value < 0.05, the series is stationary 
+# (reject the null hypothesis of a unit root).
+# If the p-value > 0.05, the series is non-stationary, 
+# and differencing may be needed (ARIMA).
+
+adf_sd_result <- adf.test(diff(sd_ts_p1,lag = 6))
+
+library(gt)
+
+# Create compact version
+adf_table <- data.frame(
+  Test = "ADF",
+  Series = "San Diego Temp (lag=6)",
+  Statistic = adf_sd_result$statistic,
+  Lag = adf_sd_result$parameter,
+  `p-value` = adf_sd_result$p.value,
+  check.names = FALSE
+) %>% 
+  gt() %>%
+  tab_header(
+    title = "Stationarity Test Results",
+    subtitle = "Augmented Dickey-Fuller Test for Differenced Temperature Series"
+  ) %>%
+  cols_label(
+    Test = "Test",
+    Series = "Series",
+    Statistic = "DF Stat",
+    Lag = "Lag",
+    `p-value` = "p-value"
+  ) %>%
+  fmt_number(
+    columns = c(Statistic, `p-value`),
+    decimals = 3
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "bottom", weight = px(2))
+    ),
+    locations = list(
+      cells_column_labels(),
+      cells_body(columns = everything(), rows = 1)
+    )
+  ) %>%
+  tab_options(
+    table.width = pct(100),  # Use full width efficiently
+    column_labels.font.size = px(12),
+    data_row.padding = px(4)
+  ) 
+
+adf_table
+```
+
+#### Comments
+
+The Augmented Dickey-Fuller (ADF) test on the differenced San Diego maximum temperature series indicates that the data is stationary ( @tbl-table23). The test returned a strongly negative Dickey-Fuller statistic (-7.697) and a p-value of 0.01, which is below the 0.05 significance threshold. This allows us to reject the null hypothesis of a unit root, confirming that the differenced series does not exhibit non-stationarity. Using a lag of 6 accounts for autocorrelation up to six time steps, improving the robustness of the test. In the context of forecasting San Diego's temperatures in December 2012, this result shows that sixth-order differencing effectively removed trends or seasonality, making the series suitable for time series models like ARIMA. Stationarity is essential for these models to produce reliable forecasts, as it ensures consistent statistical behaviour over time.
+
+```{r,fig.cap='ACF/PACF of Average MaxTemp for San Diego',fig-plot45,message=FALSE,warning=FALSE}
+# Autocorrelation Function (ACF) and Partial Autocorrelation Function (PACF)
+par(mfrow=c(1,2),mar=c(4,4,4,1))
+acf(diff(sd_ts_p1), main = "ACF of Average MaxTemp")
+pacf(diff(sd_ts_p1), main = "PACF of Average MaxTemp")
+```
+
+#### Comments
+
+The ACF and PACF plots (@fig-plot45) of the Average MaxTemp time series reveal little to no significant autocorrelation, suggesting the series behaves like white noise. In the ACF plot, autocorrelation coefficients are close to zero across all lags (mostly within ±0.07) and remain within the significance bounds, indicating no strong lagged dependencies. The PACF plot similarly shows minor spikes, such as near lag 1 and lag 6, but these are small and not statistically significant. This pattern supports the earlier ADF test result (p = 0.01), confirming that the differenced series is stationary. The absence of strong autocorrelation implies that a simple model, such as ARIMA(0,1,0), may be adequate for forecasting, though further model refinement could be explored to capture any subtle remaining structure.
+
+```{r,message=FALSE,warning=FALSE}
+
+# model fit arima010
+sd_arima010 <- arima(sd_ts_p1, order = c(0, 1, 0),
+                     seasonal = list(order = c(1, 1, 1), period = 7))
+#summary(sd_arima010)
+
+# model fit arima010
+sd_arima110 <- arima(sd_ts_p1, order = c(1, 1, 0),
+                     seasonal = list(order = c(1, 1, 1), period = 7))
+#summary(sd_arima110)
+
+# model fit arima011
+sd_arima011 <- arima(sd_ts_p1, order = c(0, 1, 1),
+                     seasonal = list(order = c(1, 1, 1), period = 7))
+#summary(sd_arima011)
+
+# model fit arima111
+sd_arima111 <- arima(sd_ts_p1, order = c(1, 1, 1),
+                     seasonal = list(order = c(1, 1, 1), period = 7))
+#summary(sd_arima111)
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='ARIMAs Model Comparison for San Diego Temperature',tbl-table24}
+library(gt)
+library(dplyr)
+
+# Create a summary data frame of all models
+model_comparison <- data.frame(
+  Model = c("ARIMA(0,1,0)", "ARIMA(1,1,0)", "ARIMA(0,1,1)", "ARIMA(1,1,1)"),
+  AIC = c(sd_arima010$aic, sd_arima110$aic, 
+          sd_arima011$aic, sd_arima111$aic),
+  BIC = c(BIC(sd_arima010), BIC(sd_arima110), 
+          BIC(sd_arima011), BIC(sd_arima111)),
+  LogLik = c(sd_arima010$loglik, sd_arima110$loglik, 
+             sd_arima011$loglik, sd_arima111$loglik),
+  Coefficients = c(
+    "None", 
+    paste("ar1 =", round(sd_arima110$coef["ar1"], 3)),
+    paste("ma1 =", round(sd_arima011$coef["ma1"], 3)),
+    paste("ar1 =", round(sd_arima111$coef["ar1"], 3), 
+         ", ma1 =", round(sd_arima111$coef["ma1"], 3))
+  )
+)
+
+# Create the gt table
+gt_table <- model_comparison %>%
+  gt() %>%
+  tab_header(
+    title = "ARIMAs Model Comparison for San Diego Temperature",
+    subtitle = "Based on AIC, BIC, and Log-Likelihood"
+  ) %>%
+  cols_label(
+    Model = "Model",
+    AIC = "AIC",
+    BIC = "BIC",
+    LogLik = "Log Likelihood",
+    Coefficients = "Estimated Coefficients"
+  ) %>%
+  fmt_number(
+    columns = c(AIC, BIC, LogLik),
+    decimals = 1
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_options(
+    table.width = "100%",
+    heading.align = "left"
+  )
+
+# Display the table
+gt_table
+```
+
+#### Comments
+
+The comparison of seasonal ARIMA models (@tbl-table24) for San Diego’s daily maximum temperature series (up to December 8, 2012), indicates that the ARIMA(1,1,1)(1,1,1)\[7\] model provides the best overall performance. It achieves the lowest AIC (1,563.9), lowest BIC (1,583.0), and highest log-likelihood (-777.0), highlighting its superior fit for short-term forecasting (e.g., December 9–13, 2012). The estimated non-seasonal coefficients (ar1 = 0.542, ma1 = -0.923) point to a strong autoregressive and moving average structure, while the seasonal component effectively captures weekly patterns (period = 7), which aligns with the expected behaviour in daily temperature data. In contrast, alternative models ARIMA(0,1,0)(1,1,1)\[7\], ARIMA(1,1,0)(1,1,1)\[7\], and ARIMA(0,1,1)(1,1,1)\[7\] all show worse performance with higher AICs (1,619.8, 1,621.3, and 1,620.3, respectively) and lower log-likelihoods, indicating less effective modelling of the series. The substantial improvement in model fit for ARIMA(1,1,1)(1,1,1)\[7\] confirms its ability to capture both the short-term variability and weekly seasonality present in San Diego’s temperature data.
+
+```{r,fig.cap='ARIMA111 Diagnostic plots for San Diego',fig-plot46,message=FALSE,warning=FALSE}
+# residuals check
+par(mfrow=c(1,2),mar=c(4,4,3.5,4))
+tsdiag(sd_arima111)
+```
+
+#### Comments
+
+The diagnostic plots for the ARIMA(1,1,1) model fitted to the San Diego maximum temperature time series (@fig-plot46) suggest the model captures the short-term structure reasonably well but overlooks important seasonal patterns. The standardized residuals (top panel) are mostly within ±3, indicating no major outliers, yet a noticeable cyclical pattern remains consistent with unmodelled annual seasonality expected in daily temperature data (frequency = 365). The ACF of the residuals (middle panel) shows several small but statistically significant autocorrelations at various lags, exceeding the 95% confidence bounds, which points to remaining structure not captured by the model. This is reinforced by the Ljung-Box test results (bottom panel), where p-values for lags 1 to 10 are consistently below 0.05, rejecting the null hypothesis of white noise residuals. Together, these signs indicate that the ARIMA(1,1,1) model may be insufficient due to its lack of a seasonal component. This is supported by the overly high forecast values (\~30°C for December 9–13, 2012), which deviate from San Diego’s typical December temperatures (around 15–20°C). A seasonal ARIMA model that explicitly accounts for the annual cycle is likely to improve both residual diagnostics and forecast accuracy.
+
+```{r,message=FALSE,warning=FALSE,fig.cap='ARIMA(1,1,1) Forecast for San Diego MaxTemp (Dec 9-13, 2012)',fig-plot47}
+
+library(forecast)
+library(lubridate)
+
+sd_fc_p1 <- forecast(sd_arima111, h=5, level = 95)
+# Plot the forecast with suppressed default axis
+plot(sd_fc_p1, 
+     main = "ARIMA(1,1,1) Forecast for San Diego MaxTemp\n(Dec 9-13, 2012)", 
+     xlab = "Date", 
+     ylab = "Maximum Temperature (°C)",
+     xaxt = "n",  # Suppress default x-axis
+     col = "black",  # Historical data line color
+     shaded = TRUE,  # Shade confidence intervals
+     shadecols = "lightgrey",  # Color for 95% CI
+     fcol = "red",  # Forecast line color
+     flty = 2  # Dashed line for forecast
+)
+
+# Calculate fractional year positions for the start of each month
+start_date <- as.Date("2012-01-01")
+month_starts <- seq.Date(from = as.Date("2012-01-01"), 
+                         to = as.Date("2012-12-01"), by = "month")
+days_since_start <- as.numeric(difftime(month_starts, 
+                                        start_date, units = "days"))
+month_pos <- 2012 + (days_since_start / 365)  # Fractional years (frequency = 365)
+month_letters <- c("J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")
+
+# Add custom x-axis with single-letter month labels
+axis(1, 
+     at = month_pos, 
+     labels = month_letters, 
+     cex.axis = 0.7, 
+     tick = FALSE, 
+     line = -0.5)
+
+# Add subtle tick marks between months (midpoints)
+midpoints <- (month_pos[-1] + month_pos[-length(month_pos)]) / 2
+axis(1, 
+     at = midpoints, 
+     labels = FALSE, 
+     tck = -0.01)
+
+# Add grid lines aligned with month positions
+abline(v = month_pos, col = "lightgray", lty = "dotted")
+
+# Add horizontal grid lines (optional, matching the plot)
+abline(h = seq(0, 40, by = 5), col = "lightgray", lty = "dotted")
+
+# Redraw the plot elements over the grid (already drawn by plot()
+lines(sd_fc_p1$mean, col = "red", lty = 2)
+
+# Add vertical line at Dec 8
+days_to_dec8 <- as.numeric(difftime(as.Date("2012-12-08"), 
+                                    start_date, units = "days"))
+dec8_position <- 2012 + (days_to_dec8 / 365)
+abline(v = dec8_position, col = "blue", lty = 2)
+
+# Add legend
+legend("topleft", 
+       legend = c("Historical Data", "Forecast", "95% CI"),
+       col = c("black", "red", "lightgrey"),
+       lty = c(1, 2, 1),
+       lwd = c(1, 1, 5),
+       bty = "n")
+
+```
+
+#### Comments
+
+The ARIMA(1,1,1) forecast plot (@fig-plot47) for San Diego maximum temperatures from January 1 to December 8, 2012, displays a seasonal pattern in the historical data (black line), with temperatures peaking around 30–35°C in late summer (July–August) and declining to approximately 15–20°C by early December, reflecting San Diego’s typical annual cycle. The forecast for December 9–13, 2012, shown as a red dashed line, begins at around 15°C on December 9, exhibits a slight upward trend to approximately 16°C by December 10, followed by a minor downward dip to about 15.5°C by December 11, and then rises again to around 16°C by December 13, closely aligning with the kriging prediction of 16.1°C for that date. The 95% confidence interval (shaded grey) remains narrow, indicating low uncertainty in the forecast, and a vertical dashed line at December 8 marks the transition from historical data to the forecast period.
+
+### Time Series Modelling and forecasts for Fresno from December 9th-December 13th
+
+```{r,message=FALSE,warning=FALSE}
+
+# Fresno 
+# Filter training data up to December 08, 2012
+train_data_p1 <- temp_data %>%
+  filter(Date <= as.Date("2012-12-08"))
+
+# Prepare time series for Fresno
+fr_data_p1 <- train_data_p1 %>%
+  filter(Location == "Fresno") %>%
+  pull(MaxTemp)
+
+fr_ts_p1 <- ts(fr_data_p1, frequency = 365,start = c(2012,1))  
+```
+
+```{r,warning=FALSE,message=FALSE,tab.cap='ADF Test Results',tbl-table25}
+library(tseries)
+# If the p-value < 0.05, the series is stationary 
+# (reject the null hypothesis of a unit root).
+# If the p-value > 0.05, the series is non-stationary, 
+# and differencing may be needed (ARIMA).
+
+# Perform ADF test
+adf_result <- adf.test(diff(fr_ts_p1, lag = 6))
+
+
+library(gt)
+
+# Create compact version
+adf_table <- data.frame(
+  Test = "ADF",
+  Series = "Fresno Temp (lag=6)",
+  Statistic = adf_result$statistic,
+  Lag = adf_result$parameter,
+  `p-value` = adf_result$p.value,
+  check.names = FALSE
+) %>% 
+  gt() %>%
+  tab_header(
+    title = "Stationarity Test Results",
+    subtitle = "Augmented Dickey-Fuller Test for Differenced Temperature Series"
+  ) %>%
+  cols_label(
+    Test = "Test",
+    Series = "Series",
+    Statistic = "DF Stat",
+    Lag = "Lag",
+    `p-value` = "p-value"
+  ) %>%
+  fmt_number(
+    columns = c(Statistic, `p-value`),
+    decimals = 3
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "bottom", weight = px(2))
+    ),
+    locations = list(
+      cells_column_labels(),
+      cells_body(columns = everything(), rows = 1)
+    )
+  ) %>%
+  tab_options(
+    table.width = pct(100),  # Use full width efficiently
+    column_labels.font.size = px(12),
+    data_row.padding = px(4)
+  ) 
+
+adf_table
+```
+
+#### Comments
+
+The Augmented Dickey-Fuller (ADF) test results ( @tbl-table25) for the differenced Fresno maximum temperature series indicate that the series is stationary in first order differencing, as evidenced by a Dickey-Fuller statistic of -6.922 with a p-value of 0.010, which is below the 0.05 significance level, leading to the rejection of the null hypothesis of a unit root in favour of the alternative hypothesis of stationarity. The test used a lag order of 6, suggesting that the model accounted for autocorrelation up to 6 days, appropriate for daily temperature data with potential weekly patterns (`frequency = 365`).
+
+```{r,fig.cap='ACF/PACF of Average MaxTemp for Fresno',fig-plot48}
+# Autocorrelation Function (ACF) and Partial Autocorrelation Function (PACF)
+par(mfrow=c(1,2),mar=c(4,4,4,1))
+acf(diff(fr_ts_p1), main = "ACF of Average MaxTemp")
+pacf(diff(fr_ts_p1), main = "PACF of Average MaxTemp")
+```
+
+#### Comments
+
+The ACF and PACF plots (@fig-plot48) for the differenced average maximum temperature time series of Fresno (daily data up to December 8, 2012) suggest that the series is stationary but may still contain some residual structure. The ACF plot shows small autocorrelations (around ±0.2) at various lags, with several spikes just above or below the 95% confidence bounds (dashed lines), indicating weak but persistent correlations that decay slowly, possibly hinting at unmodelled seasonality. The PACF plot exhibits a significant negative spike at lag 1 (around -0.15) and smaller spikes at higher lags (up to lag \~0.07), with most falling within the confidence bounds, suggesting that an AR(1) component might be appropriate, but the additional spikes indicate potential higher-order AR terms or seasonal effects. These plots suggest that a seasonal ARIMA model could better capture the underlying patterns in Fresno’s temperature data, especially given the daily frequency (`frequency = 365`) and expected yearly seasonality.
+
+```{r,message=FALSE,warning=FALSE}
+# model fit arima010
+fr_arima010 <- arima(fr_ts_p1, order = c(0, 1, 0),
+                    seasonal = list(order = c(1, 1, 1), period = 7))
+
+# model fit arima010
+fr_arima110 <- arima(fr_ts_p1, order = c(1, 1, 0),
+                     seasonal = list(order = c(1, 1, 1), period = 7))
+
+
+# model fit arima011
+fr_arima011 <- arima(fr_ts_p1, order = c(0, 1, 1),
+                     seasonal = list(order = c(1, 1, 1), period = 7))
+
+
+# model fit arima111
+fr_arima111 <- arima(fr_ts_p1, order = c(1, 1, 1),
+                     seasonal = list(order = c(1, 1, 1), period = 7))
+
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='ARIMAs Model Comparison for Fresno Temperature',tbl-table26}
+library(gt)
+library(dplyr)
+
+# Create a summary data frame of all models
+model_comparison <- data.frame(
+  Model = c("ARIMA(0,1,0)", "ARIMA(1,1,0)", "ARIMA(0,1,1)", "ARIMA(1,1,1)"),
+  AIC = c(fr_arima010$aic, fr_arima110$aic, 
+          fr_arima011$aic, fr_arima111$aic),
+  BIC = c(BIC(fr_arima010), BIC(fr_arima110), 
+          BIC(fr_arima011), BIC(fr_arima111)),
+  LogLik = c(fr_arima010$loglik, fr_arima110$loglik, 
+             fr_arima011$loglik, fr_arima111$loglik),
+  Coefficients = c(
+    "None", 
+    paste("ar1 =", round(fr_arima110$coef["ar1"], 3)),
+    paste("ma1 =", round(fr_arima011$coef["ma1"], 3)),
+    paste("ar1 =", round(fr_arima111$coef["ar1"], 3), 
+         ", ma1 =", round(fr_arima111$coef["ma1"], 3))
+  )
+)
+
+# Create the gt table
+gt_table <- model_comparison %>%
+  gt() %>%
+  tab_header(
+    title = "ARIMAs Model Comparison for Fresno Temperature",
+    subtitle = "Based on AIC, BIC, and Log-Likelihood"
+  ) %>%
+  cols_label(
+    Model = "Model",
+    AIC = "AIC",
+    BIC = "BIC",
+    LogLik = "Log Likelihood",
+    Coefficients = "Estimated Coefficients"
+  ) %>%
+  fmt_number(
+    columns = c(AIC, BIC, LogLik),
+    decimals = 1
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_options(
+    table.width = "100%",
+    heading.align = "left"
+  )
+
+# Display the table
+gt_table
+```
+
+#### Comments
+
+The comparison of ARIMA models for Fresno’s daily maximum temperature series for period 2 (@tbl-table26), covering data up to December 8, 2012, highlights that the seasonal ARIMA(1,1,1)(1,1,1)\[7\] model provides the best overall performance. It has the lowest AIC (1,730.1) and the highest log-likelihood (-860.1), indicating an optimal balance between model fit and complexity for short-term forecasting (e.g., December 9–13, 2012). The estimated coefficients (ar1 = -0.41, ma1 = 0.514) reveal significant non-seasonal autoregressive and moving average behaviour, while the seasonal terms capture weekly fluctuations (seasonal period = 7), aligning with potential weekly cycles in temperature. A close contender, ARIMA(0,1,1)(1,1,1)\[7\], performs slightly worse (AIC = 1,730.3, log-likelihood = -861.1) due to a simpler structure with a smaller moving average term (ma1 = 0.097). Other models, such as ARIMA(1,1,0)(1,1,1)\[7\] and ARIMA(0,1,0)(1,1,1)\[7\], show poorer performance with higher AICs (1,731.0 and 1,732.1) and lower log-likelihoods. While the ADF test (p = 0.010) confirms stationarity in the differenced series, earlier ACF/PACF plots hinted at residual seasonality, which the weekly seasonal component effectively addresses. Thus, ARIMA(1,1,1)(1,1,1)\[7\] stands out as the most appropriate model for capturing both short-term dynamics and weekly seasonality in the Fresno temperature data.
+
+```{r,fig.cap='Diagnostic plot for Fresno',fig-plot49}
+# residuals check
+par(mfrow=c(1,2),mar=c(4,4,3.5,4))
+tsdiag(fr_arima111)
+```
+
+#### Comments
+
+The diagnostic plots for the ARIMA(1,1,1) model fitted to the Fresno maximum temperature series (@fig-plot49) indicate a well-specified model with no significant issues. The top plot of standardized residuals shows a random scatter around zero with no obvious trends or patterns across the time period (2012.0 to 2012.8), and the residuals remain within ±3, suggesting no extreme outliers and a good fit to the data. The middle ACF plot of residuals displays autocorrelations that are close to zero and fall within the 95% confidence bounds (dashed lines) for all lags up to 0.07, indicating no significant residual autocorrelation, which supports the model’s adequacy in capturing the series’ temporal structure. The bottom Ljung-Box plot shows p-values consistently above 0.05 for lags 2 to 10, failing to reject the null hypothesis of no autocorrelation in the residuals, further confirming that the model effectively accounts for the dependencies in the Fresno temperature data.
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Forecast for Fresno MaxTemp (Dec 9-13, 2012)',fig-plot50}
+
+library(forecast)
+library(lubridate)
+
+fr_fc_p1 <- forecast(fr_arima111, h=5, level=95)
+
+# Plot the forecast with suppressed default axis
+plot(fr_fc_p1, 
+     main = "ARIMA(1,1,1) Forecast for Fresno MaxTemp\n(Dec 9-13, 2012)", 
+     xlab = "Date", 
+     ylab = "Maximum Temperature (°C)",
+     xaxt = "n",  # Suppress default x-axis
+     col = "black",  # Historical data line color
+     shaded = TRUE,  # Shade confidence intervals
+     shadecols = "lightgrey",  # Color for 95% CI
+     fcol = "red",  # Forecast line color
+     flty = 2  # Dashed line for forecast
+)
+
+# Calculate fractional year positions for the start of each month
+start_date <- as.Date("2012-01-01")
+month_starts <- seq.Date(from = as.Date("2012-01-01"), 
+                         to = as.Date("2012-12-01"), by = "month")
+days_since_start <- as.numeric(difftime(month_starts, 
+                                        start_date, units = "days"))
+month_pos <- 2012 + (days_since_start / 365)  # Fractional years (frequency = 365)
+month_letters <- c("J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")
+
+# Add custom x-axis with single-letter month labels
+axis(1, 
+     at = month_pos, 
+     labels = month_letters, 
+     cex.axis = 0.7, 
+     tick = FALSE, 
+     line = -0.5)
+
+# Add subtle tick marks between months (midpoints)
+midpoints <- (month_pos[-1] + month_pos[-length(month_pos)]) / 2
+axis(1, 
+     at = midpoints, 
+     labels = FALSE, 
+     tck = -0.01)
+
+# Add grid lines aligned with month positions
+abline(v = month_pos, col = "lightgray", lty = "dotted")
+
+# Add horizontal grid lines (optional, matching the plot)
+abline(h = seq(0, 40, by = 5), col = "lightgray", lty = "dotted")
+
+# Redraw the plot elements over the grid (already drawn by plot(), but ensure forecast line is visible)
+lines(fr_fc_p1$mean, col = "red", lty = 2)
+
+# Add vertical line at Dec 8
+days_to_dec8 <- as.numeric(difftime(as.Date("2012-12-08"),
+                                    start_date, units = "days"))
+dec8_position <- 2012 + (days_to_dec8 / 365)
+abline(v = dec8_position, col = "blue", lty = 2)
+
+# Add legend
+legend("topleft", 
+       legend = c("Historical Data", "Forecast", "95% CI"),
+       col = c("black", "red", "lightgrey"),
+       lty = c(1, 2, 1),
+       lwd = c(1, 1, 5),
+       bty = "n")
+```
+
+#### Comments
+
+The forecast plot(@fig-plot50) for Fresno's maximum temperatures shows historical data from January 1 to December 8, 2012 (black line), with a seasonal pattern temperatures peaking at around 40°C in mid-summer (July–August) and declining to about 10–15°C by early December, consistent with Fresno’s annual temperature cycle. The forecast for December 9–13, 2012, depicted as a red dashed line, starts at approximately 15°C on December 9, remains relatively stable at around 15°C through December 11, then shows a slight decrease to about 14.5°C by December 12, followed by a minor upward trend back to around 15°C by December 13, which is slightly below the kriging prediction of 16.7°C for that date. The 95% confidence interval (shaded grey) around the forecast is narrow, indicating low uncertainty, and a vertical dashed line at December 8 marks the transition from historical data to the forecast period.
+
+### Time Series Modelling and forecasts for San Diego from December 13th-December 17th
+
+```{r,warning=FALSE,message=FALSE}
+# Filter training data up to December 12, 2012
+train_data_p2 <- temp_data %>%
+  filter(Date <= as.Date("2012-12-12"))
+
+# Prepare time series for San Diego
+sd_data_p2 <- train_data_p2 %>%
+  filter(Location == "San Diego") %>%
+  pull(MaxTemp)
+
+sd_ts_p2 <- ts(sd_data_p2, frequency = 365,start = c(2012,1))  
+```
+
+```{r,warning=FALSE,message=FALSE,tab.cap='ADF Test Results',tbl-table27}
+library(tseries)
+# If the p-value < 0.05, the series is stationary 
+# (reject the null hypothesis of a unit root).
+# If the p-value > 0.05, the series is non-stationary, 
+# and differencing may be needed (ARIMA).
+
+# Perform ADF test
+adf_sd_result <- adf.test(diff(sd_ts_p2, lag = 6))
+
+
+library(gt)
+
+# Create compact version
+adf_table <- data.frame(
+  Test = "ADF",
+  Series = "San Diego Temp (lag=6)",
+  Statistic = adf_sd_result$statistic,
+  Lag = adf_sd_result$parameter,
+  `p-value` = adf_sd_result$p.value,
+  check.names = FALSE
+) %>% 
+  gt() %>%
+  tab_header(
+    title = "Stationarity Test Results",
+    subtitle = "Augmented Dickey-Fuller Test for Differenced Temperature Series"
+  ) %>%
+  cols_label(
+    Test = "Test",
+    Series = "Series",
+    Statistic = "DF Stat",
+    Lag = "Lag",
+    `p-value` = "p-value"
+  ) %>%
+  fmt_number(
+    columns = c(Statistic, `p-value`),
+    decimals = 3
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "bottom", weight = px(2))
+    ),
+    locations = list(
+      cells_column_labels(),
+      cells_body(columns = everything(), rows = 1)
+    )
+  ) %>%
+  tab_options(
+    table.width = pct(100),  # Use full width efficiently
+    column_labels.font.size = px(12),
+    data_row.padding = px(4)
+  ) 
+
+adf_table
+
+```
+
+#### Comments
+
+The Augmented Dickey-Fuller (ADF) test results for the differenced San Diego maximum temperature series (@tbl-table27) indicate that the series is stationary, as evidenced by a Dickey-Fuller statistic of -7.739 with a p-value of 0.010, which is below the 0.05 significance level, leading to the rejection of the null hypothesis of a unit root in favour of the alternative hypothesis of stationarity. The test utilised a lag order of 6, suggesting that the model accounts for autocorrelation up to 6 days, appropriate for daily temperature data with potential weekly influences. This statsonarity confirms that the differencing process has successfully removed any trends, stabilising the mean and making the series suitable for further time series analysis, such as ARIMA modelling, to capture its underlying patterns effectively.
+
+```{r,fig.cap='ACF/PACF plot of Average MaxTemp for San Diego in period2',fig-plot51}
+# Autocorrelation Function (ACF) and Partial Autocorrelation Function (PACF)
+par(mfrow=c(1,2),mar=c(4,4,4,1))
+acf(diff(sd_ts_p2), main = "ACF of Average MaxTemp")
+pacf(diff(sd_ts_p2), main = "PACF of Average MaxTemp")
+```
+
+#### Comments
+
+The ACF plot for the differenced average maximum temperature series shows a strong initial spike at lag 0 followed by a quick decay, with most subsequent autocorrelations falling within the 95% confidence bounds, indicating minimal residual autocorrelation. The PACF plot displays a significant negative spike at lag 1 and smaller negative values for several subsequent lags, suggesting some short-term dependence in the data (@fig-plot51). Overall, the pattern in both plots implies that the differencing was effective in reducing autocorrelation and supports the presence of a short-memory process, potentially suitable for modelling with a low-order ARIMA model.
+
+```{r,message=FALSE,warning=FALSE}
+# period 2 models fitting
+# model fit arima010
+sd_p2_arima010 <- arima(sd_ts_p2, order = c(0, 1, 0),
+                    seasonal = list(order = c(1, 1, 1), period = 7))
+
+# model fit arima010
+sd_p2_arima110 <- arima(sd_ts_p2, order = c(1, 1, 0),
+                     seasonal = list(order = c(1, 1, 1), period = 7))
+
+
+# model fit arima011
+sd_p2_arima011 <- arima(sd_ts_p2, order = c(0, 1, 1),
+                     seasonal = list(order = c(1, 1, 1), period = 7))
+
+
+# model fit arima111
+sd_p2_arima111 <- arima(sd_ts_p2, order = c(1, 1, 1),
+                     seasonal = list(order = c(1, 1, 1), period = 7))
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='ARIMAs Model Comparison for San Diego Temperature period2',tbl-table28}
+library(gt)
+library(dplyr)
+
+# Create a summary data frame of all models
+model_comparison <- data.frame(
+  Model = c("ARIMA(0,1,0)", "ARIMA(1,1,0)", "ARIMA(0,1,1)", "ARIMA(1,1,1)"),
+  AIC = c(sd_p2_arima010$aic, sd_p2_arima110$aic,
+          sd_p2_arima011$aic, sd_p2_arima111$aic),
+  BIC = c(BIC(sd_p2_arima010), BIC(sd_p2_arima110),
+          BIC(sd_p2_arima011), BIC(sd_p2_arima111)),
+  LogLik = c(sd_p2_arima010$loglik, 
+             sd_p2_arima110$loglik, 
+             sd_p2_arima011$loglik, sd_p2_arima111$loglik),
+  Coefficients = c(
+    "None", 
+    paste("ar1 =", round(sd_p2_arima110$coef["ar1"], 3)),
+    paste("ma1 =", round(sd_p2_arima011$coef["ma1"], 3)),
+    paste("ar1 =", round(sd_p2_arima111$coef["ar1"], 3), 
+         " ma1 =", round(sd_p2_arima111$coef["ma1"], 3))
+  )
+)
+
+# Create the gt table
+gt_table <- model_comparison %>%
+  gt() %>%
+  tab_header(
+    title = "ARIMAs Model Comparison for San Diego Temperature",
+    subtitle = "Based on AIC, BIC, and Log-Likelihood"
+  ) %>%
+  cols_label(
+    Model = "Model",
+    AIC = "AIC",
+    BIC = "BIC",
+    LogLik = "Log Likelihood",
+    Coefficients = "Estimated Coefficients"
+  ) %>%
+  fmt_number(
+    columns = c(AIC, BIC, LogLik),
+    decimals = 1
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_options(
+    table.width = "100%",
+    heading.align = "left"
+  )
+
+# Display the table
+gt_table
+```
+
+#### Comments
+
+The ARIMA model comparison for the San Diego maximum temperature series (@tbl-table28), with a seasonal component (\`order = c(1,1,1), period = 7\`), reveals that the ARIMA(1,1,1)(1,1,1)\[7\] model is the best fit, as it has the lowest AIC (1,581.5), BIC (1,600.6), and the highest log-likelihood (-785.7), indicating superior performance in balancing model fit and complexity for forecasting. Its coefficients (ar1 = 0.54, ma1 = -0.924) suggest a strong autoregressive and moving average structure at the non-seasonal level, while the seasonal component captures weekly patterns, fitting the daily temperature data’s potential weekly cycles. The other models ARIMA(0,1,0)(1,1,1)\[7\], ARIMA(1,1,0)(1,1,1)\[7\], and ARIMA(0,1,1)(1,1,1)\[7\] have higher AIC values (1,639.0, 1,640.5, and 1,639.3, respectively) and lower log-likelihoods, indicating poorer fits. The significant improvement in AIC and log-likelihood for ARIMA(1,1,1)(1,1,1)\[7\] suggests it effectively models both short-term dynamics and weekly seasonality in the San Diego temperature series.
+
+```{r,fig.cap='Diagnostic plots for San Diego period2',fig-plot52}
+# residuals check
+par(mfrow=c(1,2),mar=c(4,4,3.5,4))
+tsdiag(sd_p2_arima111)
+```
+
+#### Comments
+
+The diagnostic plots for the ARIMA(1,1,1) model fitted to the San Diego maximum temperature series (@fig-plot52) indicate a generally well-specified model with some minor concerns. The standardized residuals plot shows a random scatter around zero across the time period (2012.0 to 2012.8), with values mostly within ±3, suggesting no extreme outliers and a reasonable fit, though a slight clustering of residuals around certain periods (e.g., mid-2012) may hint at unmodelled patterns. The ACF plot of residuals displays autocorrelations close to zero, with all lags up to 0.07 falling within the 95% confidence bounds (dashed lines), indicating no significant residual autocorrelation and supporting the model’s adequacy in capturing temporal dependencies. The Ljung-Box plot shows p-values consistently above 0.05 for lags 2 to 10, failing to reject the null hypothesis of no autocorrelation in the residuals, further confirming that the model effectively accounts for the series’ structure, making it suitable for forecasting purposes.
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Forecast for San Diego MaxTemp (Dec 13-17, 2012)',fig-plot53}
+
+library(forecast)
+library(lubridate)
+sd_fc_p2 <- forecast(sd_p2_arima111, h=5, level = 95)
+# Plot the forecast with suppressed default axis
+plot(sd_fc_p2, 
+     main = "ARIMA(1,1,1) Forecast for San Diego MaxTemp\n(Dec 13-17, 2012)", 
+     xlab = "Date", 
+     ylab = "Maximum Temperature (°C)",
+     xaxt = "n",  # Suppress default x-axis
+     col = "black",  # Historical data line color
+     shaded = TRUE,  # Shade confidence intervals
+     shadecols = "lightgrey",  # Color for 95% CI
+     fcol = "red",  # Forecast line color
+     flty = 2  # Dashed line for forecast
+)
+
+# Calculate fractional year positions for the start of each month
+start_date <- as.Date("2012-01-01")
+month_starts <- seq.Date(from = as.Date("2012-01-01"), 
+                         to = as.Date("2012-12-01"), by = "month")
+days_since_start <- as.numeric(difftime(month_starts, 
+                                        start_date, units = "days"))
+month_pos <- 2012 + (days_since_start / 365)  # Fractional years (frequency = 365)
+month_letters <- c("J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")
+
+# Add custom x-axis with single-letter month labels
+axis(1, 
+     at = month_pos, 
+     labels = month_letters, 
+     cex.axis = 0.7, 
+     tick = FALSE, 
+     line = -0.5)
+
+# Add subtle tick marks between months (midpoints)
+midpoints <- (month_pos[-1] + month_pos[-length(month_pos)]) / 2
+axis(1, 
+     at = midpoints, 
+     labels = FALSE, 
+     tck = -0.01)
+
+# Add grid lines aligned with month positions
+abline(v = month_pos, col = "lightgray", lty = "dotted")
+
+# Add horizontal grid lines (optional, matching the plot)
+abline(h = seq(0, 40, by = 5), col = "lightgray", lty = "dotted")
+
+# Redraw the plot elements over the grid (already drawn by plot()
+lines(sd_fc_p2$mean, col = "red", lty = 2)
+
+# Add vertical line at Dec 8
+days_to_dec8 <- as.numeric(difftime(as.Date("2012-12-08"), 
+                                    start_date, units = "days"))
+dec8_position <- 2012 + (days_to_dec8 / 365)
+abline(v = dec8_position, col = "blue", lty = 2)
+
+# Add legend
+legend("topleft", 
+       legend = c("Historical Data", "Forecast", "95% CI"),
+       col = c("black", "red", "lightgrey"),
+       lty = c(1, 2, 1),
+       lwd = c(1, 1, 5),
+       bty = "n")
+
+```
+
+#### Comments
+
+The ARIMA(1,1,1) forecast plot (@fig-plot53) for San Diego maximum temperatures includes historical data (black line) from January 1 to December 12, 2012, showing a seasonal pattern with temperatures peaking around 30–35°C in late summer (July–August) and declining to approximately 15–20°C by mid-December, consistent with San Diego’s typical annual cycle. The forecast for December 13–17, 2012, depicted as a red dashed line after the vertical dashed line at December 12, starts at around 17°C on December 13, increases to approximately 19°C by December 15, then shows a slight downward trend to about 18°C by December 17, aligning closely with the expected mid-December range of 15–20°C and slightly above the kriging prediction of 16.1°C for December 13. The narrow 95% confidence interval (shaded grey) around the forecast indicates low uncertainty.
+
+### Time Series Modelling and forecasts for Fresno from December 13th-December 17th
+
+```{r,message=FALSE,warning=FALSE}
+library(tidyverse)
+# Filter training data up to December 12, 2012
+train_data_p2 <- temp_data %>%
+  filter(Date <= as.Date("2012-12-12"))
+
+# Prepare time series for Fresno
+fr_data_p2 <- train_data_p2 %>%
+  filter(Location == "Fresno") %>%
+  pull(MaxTemp)
+
+fr_ts_p2 <- ts(fr_data_p2, frequency = 365,start = c(2012,1)) 
+```
+
+```{r,warning=FALSE,message=FALSE,tab.cap='ADF Test Results',tbl-table29}
+library(tseries)
+# If the p-value < 0.05, the series is stationary 
+# (reject the null hypothesis of a unit root).
+# If the p-value > 0.05, the series is non-stationary, 
+# and differencing may be needed (ARIMA).
+
+# Perform ADF test
+adf_fr_result <- adf.test(diff(fr_ts_p2, lag = 6))
+
+
+library(gt)
+
+# Create compact version
+adf_table <- data.frame(
+  Test = "ADF",
+  Series = "Fresno Temp (lag=6)",
+  Statistic = adf_fr_result$statistic,
+  Lag = adf_fr_result$parameter,
+  `p-value` = adf_fr_result$p.value,
+  check.names = FALSE
+) %>% 
+  gt() %>%
+  tab_header(
+    title = "Stationarity Test Results",
+    subtitle = "Augmented Dickey-Fuller Test for Differenced Temperature Series"
+  ) %>%
+  cols_label(
+    Test = "Test",
+    Series = "Series",
+    Statistic = "DF Stat",
+    Lag = "Lag",
+    `p-value` = "p-value"
+  ) %>%
+  fmt_number(
+    columns = c(Statistic, `p-value`),
+    decimals = 3
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "bottom", weight = px(2))
+    ),
+    locations = list(
+      cells_column_labels(),
+      cells_body(columns = everything(), rows = 1)
+    )
+  ) %>%
+  tab_options(
+    table.width = pct(100),  # Use full width efficiently
+    column_labels.font.size = px(12),
+    data_row.padding = px(4)
+  ) 
+
+adf_table
+```
+
+#### Comments
+
+The Augmented Dickey-Fuller (ADF) test results for the differenced Fresno maximum temperature series (@tbl-table29) confirm that the series is stationary, with a Dickey-Fuller statistic of -6.949 and a p-value of 0.010, which is below the 0.05 significance threshold, leading to the rejection of the null hypothesis of a unit root in favour of the alternative hypothesis of stationarity. The test used a lag order of 6, indicating that autocorrelation up to 6 days was considered, which is appropriate for daily temperature data with potential weekly patterns. This stationarity suggests that the differencing process has successfully removed trends, stabilising the mean of the series, making it suitable for time series modelling such as ARIMA, which can now focus on capturing any remaining short-term or seasonal dynamics in the Fresno temperature data.
+
+```{r,fig.cap='ACF/PACF of Average MaxTemp for Fresno period2',fig-plot54}
+# Autocorrelation Function (ACF) and Partial Autocorrelation Function (PACF)
+par(mfrow=c(1,2),mar=c(4,4,4,1))
+acf(diff(fr_ts_p2), main = "ACF of Average MaxTemp")
+pacf(diff(fr_ts_p2), main = "PACF of Average MaxTemp")
+```
+
+#### Comments
+
+The ACF and PACF plots for the differenced average maximum temperature series of Fresno (@fig-plot54) indicate that the series is stationary but may retain some minor residual structure. The ACF plot shows autocorrelations mostly within ±0.2, with a few spikes (e.g., around lag 0.01 and 0.05) slightly exceeding the 95% confidence bounds (dashed lines), suggesting weak but persistent correlations that decay gradually, potentially indicating a moving average component or subtle seasonal effects. The PACF plot displays a significant negative spike at lag 1 (around -0.15), with smaller negative spikes at subsequent lags (e.g., 0.02, 0.04, up to 0.07) mostly within the confidence bounds, pointing to a short-term autoregressive effect at lag 1. Together, these patterns suggest that the differencing (d=1) has stabilised the series, and the combination of the PACF’s lag 1 spike and the ACF’s gradual decay supports a low-order ARIMA model, such as ARIMA(1,1,1), to capture both the autoregressive and potential moving average components in the daily temperature data.
+
+```{r,message=FALSE,warning=FALSE}
+# model fit arima010
+fr_p2_arima010 <- arima(fr_ts_p2, order = c(0, 1, 0),
+                    seasonal = list(order = c(1, 1, 1), period = 7))
+
+# model fit arima010
+fr_p2_arima110 <- arima(fr_ts_p2, order = c(1, 1, 0),
+                     seasonal = list(order = c(1, 1, 1), period = 7))
+
+
+# model fit arima011
+fr_p2_arima011 <- arima(fr_ts_p2, order = c(0, 1, 1),
+                     seasonal = list(order = c(1, 1, 1), period = 7))
+
+
+# model fit arima111
+fr_p2_arima111 <- arima(fr_ts_p2, order = c(1, 1, 1),
+                     seasonal = list(order = c(1, 1, 1), period = 7))
+
+```
+
+```{r,message=FALSE,warning=FALSE,tab.cap='ARIMAs Model Comparison for Fresno Temperature period2',tbl-table30}
+library(gt)
+library(dplyr)
+
+# Create a summary data frame of all models
+model_comparison <- data.frame(
+  Model = c("ARIMA(0,1,0)", "ARIMA(1,1,0)", "ARIMA(0,1,1)", "ARIMA(1,1,1)"),
+  AIC = c(fr_p2_arima010$aic, fr_p2_arima110$aic, 
+          fr_p2_arima011$aic, fr_p2_arima111$aic),
+  BIC = c(BIC(fr_p2_arima010), BIC(fr_p2_arima110), 
+          BIC(fr_p2_arima011), 
+          BIC(fr_p2_arima111)),
+  LogLik = c(fr_p2_arima010$loglik, 
+             fr_p2_arima110$loglik, 
+             fr_p2_arima011$loglik, 
+             fr_p2_arima111$loglik),
+  Coefficients = c(
+    "None", 
+    paste("ar1 =", round(fr_p2_arima110$coef["ar1"], 3)),
+    paste("ma1 =", round(fr_p2_arima011$coef["ma1"], 3)),
+    paste("ar1 =", round(fr_p2_arima111$coef["ar1"], 3), 
+         " ma1 =", round(fr_p2_arima111$coef["ma1"], 3))
+  )
+)
+
+# Create the gt table
+gt_table <- model_comparison %>%
+  gt() %>%
+  tab_header(
+    title = "ARIMAs Model Comparison for Fresno Temperature",
+    subtitle = "Based on AIC, BIC, and Log-Likelihood"
+  ) %>%
+  cols_label(
+    Model = "Model",
+    AIC = "AIC",
+    BIC = "BIC",
+    LogLik = "Log Likelihood",
+    Coefficients = "Estimated Coefficients"
+  ) %>%
+  fmt_number(
+    columns = c(AIC, BIC, LogLik),
+    decimals = 1
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_options(
+    table.width = "100%",
+    heading.align = "left"
+  )
+
+# Display the table
+gt_table
+```
+
+#### Comments
+
+The ARIMA model comparison for the Fresno maximum temperature series (@tbl-table30), incorporating a seasonal component (`order = c(1,1,1), period = 7`), indicates that the ARIMA(1,1,1)(1,1,1)\[7\] model is the best fit, with the lowest AIC (1,753.2), BIC (1,772.4), and the highest log-likelihood (-871.6), suggesting it strikes the best balance between model fit and complexity for forecasting. Its coefficients (ar1 = -0.427, ma1 = 0.528) reflect a notable autoregressive and moving average structure at the non-seasonal level, while the seasonal component captures weekly patterns, suitable for the daily temperature data’s potential seven-day cycles. The other models ARIMA(0,1,0)(1,1,1)\[7\], ARIMA(1,1,0)(1,1,1)\[7\], and ARIMA(0,1,1)(1,1,1)\[7\] have higher AIC values (1,753.3, 1,754.1, and 1,753.5, respectively) and lower log-likelihoods, indicating less effective fits. The slight improvement in AIC and log-likelihood for ARIMA(1,1,1)(1,1,1)\[7\] suggests it better captures both the short-term dynamics and weekly seasonality in the Fresno temperature series.
+
+```{r,fig.cap='Diagnostic plot for Fresno period2',fig-plot55}
+# residuals check
+par(mfrow=c(1,2),mar=c(4,4,3.5,4))
+tsdiag(fr_p2_arima111)
+```
+
+#### Comments
+
+The diagnostic plots (@fig-plot55) for the ARIMA(1,1,1) model fitted to the Fresno maximum temperature series indicate a well-specified model with minimal issues. The standardized residuals plot shows a random scatter around zero across the time period (2012.0 to 2012.8), with values mostly within ±3, suggesting no extreme outliers and a good fit to the data, though minor fluctuations are present. The ACF plot of residuals displays autocorrelations close to zero, all falling within the 95% confidence bounds (dashed lines) for lags up to 0.07, indicating no significant residual autocorrelation and confirming the model’s ability to capture the series’ temporal structure. The Ljung-Box plot shows p-values consistently above 0.05 for lags 2 to 10, failing to reject the null hypothesis of no autocorrelation in the residuals, further supporting that the model effectively accounts for the dependencies in the Fresno temperature data, making it suitable for accurate forecasting.
+
+```{r,message=FALSE,warning=FALSE,fig.cap='Forecast for Fresno MaxTemp (Dec 13-17, 2012)',fig-plot56}
+
+library(forecast)
+library(lubridate)
+fr_fc_p2 <- forecast(fr_p2_arima111, h=5, level = 95)
+# Plot the forecast with suppressed default axis
+plot(fr_fc_p2, 
+     main = "ARIMA(1,1,1) Forecast for Fresno MaxTemp\n(Dec 13-17, 2012)", 
+     xlab = "Date", 
+     ylab = "Maximum Temperature (°C)",
+     xaxt = "n",  # Suppress default x-axis
+     col = "black",  # Historical data line color
+     shaded = TRUE,  # Shade confidence intervals
+     shadecols = "lightgrey",  # Color for 95% CI
+     fcol = "red",  # Forecast line color
+     flty = 2  # Dashed line for forecast
+)
+
+# Calculate fractional year positions for the start of each month
+start_date <- as.Date("2012-01-01")
+month_starts <- seq.Date(from = as.Date("2012-01-01"), 
+                         to = as.Date("2012-12-01"), by = "month")
+days_since_start <- as.numeric(difftime(month_starts, 
+                                        start_date, 
+                                        units = "days"))
+month_pos <- 2012 + (days_since_start / 365)  # Fractional years (frequency = 365)
+month_letters <- c("J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")
+
+# Add custom x-axis with single-letter month labels
+axis(1, 
+     at = month_pos, 
+     labels = month_letters, 
+     cex.axis = 0.7, 
+     tick = FALSE, 
+     line = -0.5)
+
+# Add subtle tick marks between months (midpoints)
+midpoints <- (month_pos[-1] + month_pos[-length(month_pos)]) / 2
+axis(1, 
+     at = midpoints, 
+     labels = FALSE, 
+     tck = -0.01)
+
+# Add grid lines aligned with month positions
+abline(v = month_pos, col = "lightgray", lty = "dotted")
+
+# Add horizontal grid lines (optional, matching the plot)
+abline(h = seq(0, 40, by = 5), col = "lightgray", lty = "dotted")
+
+# Redraw the plot elements over the grid (already drawn by plot()
+lines(fr_fc_p2$mean, col = "red", lty = 2)
+
+# Add vertical line at Dec 8
+days_to_dec8 <- as.numeric(difftime(as.Date("2012-12-08"), 
+                                    start_date, units = "days"))
+dec8_position <- 2012 + (days_to_dec8 / 365)
+abline(v = dec8_position, col = "blue", lty = 2)
+
+# Add legend
+legend("topleft", 
+       legend = c("Historical Data", "Forecast", "95% CI"),
+       col = c("black", "red", "lightgrey"),
+       lty = c(1, 2, 1),
+       lwd = c(1, 1, 5),
+       bty = "n")
+```
+
+#### Comments
+
+The ARIMA(1,1,1) forecast plot (@fig-plot56) for Fresno maximum temperatures includes historical data (black line) from January 1 to December 12, 2012, showing a seasonal pattern with temperatures rising from around 10–15°C in early spring to a peak of approximately 40°C in mid-summer (July–August), then declining to about 10–15°C by mid-December, consistent with Fresno’s annual temperature cycle. The forecast for December 13–17, 2012, depicted as a red dashed line after the vertical dashed line at December 12, starts at around 11°C on December 13, shows a slight downward trend to about 10°C by December 15, then an upward trend to about 13°C by December 16, followed by a minor downward trend to around 11°C by December 17, which is below the kriging prediction of 16.7°C for December 13. The 95% confidence interval (shaded grey) around the forecast is narrow, indicating low uncertainty.
+
+## (d) Comparison of the various predictions for the maximum temperature in San Diego and Fresno on December 13th
+
+For San Diego on December 13, 2012, the ARIMA(1,1,1) model predicts a maximum temperature of approximately 17°C, while the kriging prediction is 16.1°C, showing a close alignment with the historical range of 15–20°C for mid-December. For Fresno, the ARIMA(1,1,1) model forecasts around 13°C, compared to the kriging prediction of 16.7°C, also within the historical range of 10–15°C. The ARIMA model’s slight overestimation in San Diego (by 0.9°C) and underestimation in Fresno (by 3.7°C) suggest it captures the seasonal trend effectively but may miss localised nuances. Based on the narrow 95% confidence intervals and diagnostic plots (e.g., residuals within bounds, high p-values in Ljung-Box tests), the ARIMA(1,1,1) model with a seasonal component (1,1,1)\[7\] appears best, as it consistently fits the daily temperature data across both locations, supported by its superior AIC and log-likelihood values in model comparisons. This outcome aligns with expectations, as ARIMA excels in short-term forecasting of stationary, differenced time series with seasonal patterns, while kriging, reliant on spatial interpolation, may under perform with limited spatial data points for these specific dates. Prediction accuracy could be improved by incorporating exogenous variables (e.g., humidity, wind speed) into a SARIMAX model, increasing the training dataset to capture more variability, or blending ARIMA with kriging to leverage both temporal and spatial insights, potentially reducing errors to within 0.5°C.
+
+\newpage
+
+# References {#refs}
+
+<div>
+
+</div>
